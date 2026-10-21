@@ -1,0 +1,29 @@
+# ===== Python =====
+# Virtual environment — this is 50+ MB of Python packages.
+# Anyone can recreate it with: pip install -r requirements.txt
+# NEVER push this. It's like pushing your entire compiler to GitHub.
+venv/
+
+# Python bytecode cache — auto-generated when you run .py files.
+# Like .o object files in C — intermediate files, not source code.
+__pycache__/
+*.pyc
+*.pyo
+
+# ===== Database =====
+# SQLite database file — this contains actual user data.
+# You don't push databases to GitHub (imagine pushing passwords!).
+# The schema.sql file tells others how to recreate the database.
+database.db
+
+# ===== OS junk =====
+# macOS creates these hidden files in every folder. Useless.
+.DS_Store
+
+# ===== IDE/Editor =====
+# VS Code settings (specific to YOUR machine)
+.vscode/
+
+# ===== Environment =====
+# If you use a .env file for secrets (API keys, passwords)
+.env
