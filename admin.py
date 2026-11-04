@@ -375,3 +375,4 @@ def update_department(id):
         flash('Failed to reassign department due to a database error.', 'danger')
 
     return redirect(url_for('admin.view_grievance', id=id))
+

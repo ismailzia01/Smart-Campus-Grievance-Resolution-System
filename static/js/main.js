@@ -235,3 +235,4 @@ function escapeHtml(str) {
     div.textContent = String(str);
     return div.innerHTML;
 }
+
