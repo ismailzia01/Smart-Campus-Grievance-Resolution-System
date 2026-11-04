@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Student Registration{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <div class="auth-card">
+        <div class="auth-header">
+            <h2>Student Account Registration</h2>
+            <p class="text-muted">Register to submit grievances, monitor ticket status, and receive resolution updates.</p>
+        </div>
+
+        <form method="POST" action="{{ url_for('auth.register') }}" class="auth-form" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group">
+                <label for="full_name">Full Name</label>
+                <input
+                    type="text"
+                    id="full_name"
+                    name="full_name"
+                    class="form-control"
+                    placeholder="e.g., Ismail Zia"
+                    required
+                    autofocus
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="email">Campus Email Address</label>
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    class="form-control"
+                    placeholder="e.g., ismail@smartcampus.edu"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    class="form-control"
+                    placeholder="Minimum 6 characters"
+                    minlength="6"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="confirm_password">Confirm Password</label>
+                <input
+                    type="password"
+                    id="confirm_password"
+                    name="confirm_password"
+                    class="form-control"
+                    placeholder="Re-enter your password"
+                    required
+                >
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-block">Register Student Account</button>
+            </div>
+        </form>
+
+        <div class="auth-footer">
+            <p>Already have an account? <a href="{{ url_for('auth.login') }}">Log in here</a></p>
+        </div>
+    </div>
+</div>
+{% endblock %}

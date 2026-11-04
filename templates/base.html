@@ -11,16 +11,67 @@
 
 <body>
 
-    <nav>
-        <a href="/">Smart Campus</a>
-    </nav>
+    <header class="app-header">
+        <nav class="nav-container">
+            <div class="nav-brand">
+                <a href="{{ url_for('index') }}" class="brand-link">
+                    <span class="brand-title">Smart Campus</span>
+                    <span class="brand-subtitle">Grievance Portal</span>
+                </a>
+            </div>
 
-    <main>
+            <div class="nav-menu">
+                {% if g.user %}
+                    {% if g.user['role'] == 'admin' %}
+                        {% if has_endpoint('admin.dashboard') %}
+                            <a href="{{ url_for('admin.dashboard') }}" class="nav-link">Admin Dashboard</a>
+                        {% endif %}
+                    {% else %}
+                        {% if has_endpoint('student.dashboard') %}
+                            <a href="{{ url_for('student.dashboard') }}" class="nav-link">My Grievances</a>
+                        {% endif %}
+                        {% if has_endpoint('student.new_grievance') %}
+                            <a href="{{ url_for('student.new_grievance') }}" class="nav-link">Submit Grievance</a>
+                        {% endif %}
+                    {% endif %}
+
+                    <div class="user-info">
+                        <span class="user-name">{{ g.user['full_name'] }}</span>
+                        <span class="role-badge role-{{ g.user['role'] }}">{{ g.user['role'] | capitalize }}</span>
+                    </div>
+
+                    <form action="{{ url_for('auth.logout') }}" method="POST" class="logout-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-secondary btn-sm">Log Out</button>
+                    </form>
+                {% else %}
+                    <a href="{{ url_for('auth.login') }}" class="nav-link">Log In</a>
+                    <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-sm">Register</a>
+                {% endif %}
+            </div>
+        </nav>
+    </header>
+
+    <main class="app-main">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-container">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}" role="alert">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
         {% block content %}{% endblock %}
     </main>
 
-    <footer>
-        <p>&copy; 2026 Smart Campus Grievance System</p>
+    <footer class="app-footer">
+        <div class="footer-content">
+            <p>&copy; 2026 Smart Campus Grievance & Resolution System. Administrative Portal.</p>
+        </div>
     </footer>
 
 </body>

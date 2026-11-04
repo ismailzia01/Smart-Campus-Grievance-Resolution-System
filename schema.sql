@@ -63,3 +63,4 @@ CREATE INDEX idx_grievances_student    ON grievances(student_id);
 CREATE INDEX idx_grievances_status     ON grievances(status);
 CREATE INDEX idx_grievances_department ON grievances(department_id);
 CREATE INDEX idx_logs_grievance        ON grievance_logs(grievance_id);
+

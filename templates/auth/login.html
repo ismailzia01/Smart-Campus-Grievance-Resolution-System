@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Log In{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <div class="auth-card">
+        <div class="auth-header">
+            <h2>Campus Portal Login</h2>
+            <p class="text-muted">Sign in with your campus credentials to access the grievance system.</p>
+        </div>
+
+        <form method="POST" action="{{ url_for('auth.login', next=request.args.get('next')) }}" class="auth-form" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group">
+                <label for="email">Campus Email Address</label>
+                <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    class="form-control"
+                    placeholder="e.g., student@smartcampus.edu"
+                    required
+                    autofocus
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input
+                    type="password"
+                    id="password"
+                    name="password"
+                    class="form-control"
+                    placeholder="Enter your password"
+                    required
+                >
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+            </div>
+        </form>
+
+        <div class="auth-footer">
+            <p>New student? <a href="{{ url_for('auth.register') }}">Create an account</a></p>
+        </div>
+    </div>
+</div>
+{% endblock %}

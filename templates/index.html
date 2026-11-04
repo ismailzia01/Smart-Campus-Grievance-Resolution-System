@@ -3,6 +3,45 @@
 {% block title %}Home{% endblock %}
 
 {% block content %}
-<h1>Smart Campus Grievance & Resolution System</h1>
-<p>Welcome to the campus grievance portal.</p>
+<div class="hero-section">
+    <div class="hero-content">
+        <span class="badge badge-subtle">Campus Administration</span>
+        <h1 class="hero-title">Smart Campus Grievance & Resolution System</h1>
+        <p class="hero-lead">
+            A centralized digital platform for students and administrative departments to report,
+            track, and efficiently resolve campus-wide facilities, academic, and IT issues.
+        </p>
+
+        <div class="hero-actions">
+            {% if g.user %}
+                {% if g.user['role'] == 'admin' %}
+                    <a href="{{ url_for('admin.dashboard') if has_endpoint('admin.dashboard') else url_for('index') }}" class="btn btn-primary">Go to Admin Dashboard</a>
+                {% else %}
+                    <a href="{{ url_for('student.new_grievance') if has_endpoint('student.new_grievance') else url_for('index') }}" class="btn btn-primary">Submit a Grievance</a>
+                    <a href="{{ url_for('student.dashboard') if has_endpoint('student.dashboard') else url_for('index') }}" class="btn btn-secondary">View My Tickets</a>
+                {% endif %}
+            {% else %}
+                <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Sign In</a>
+                <a href="{{ url_for('auth.register') }}" class="btn btn-secondary">Student Registration</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="features-grid">
+    <div class="feature-card">
+        <h3>Campus Departments</h3>
+        <p>Issues are systematically routed to specialized departments: IT, Maintenance, Hostel Administration, and Library Facilities.</p>
+    </div>
+
+    <div class="feature-card">
+        <h3>Real-time Tracking</h3>
+        <p>Monitor your grievance lifecycle from Open to In Progress and final Resolution with complete timestamped audit logging.</p>
+    </div>
+
+    <div class="feature-card">
+        <h3>Accountability & Audit</h3>
+        <p>Every priority adjustment, department assignment, and status update maintains a verifiable administrative history.</p>
+    </div>
+</div>
 {% endblock %}
