@@ -995,3 +995,28 @@ body {
 .admin-form button {
     margin-top: auto;
 }
+
+/* Alert Dismiss Button */
+.alert {
+    position: relative;
+    padding-right: 36px;
+}
+
+.alert-close-btn {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    font-size: 18px;
+    line-height: 1;
+    color: inherit;
+    opacity: 0.6;
+    cursor: pointer;
+    padding: 4px;
+}
+
+.alert-close-btn:hover {
+    opacity: 1;
+}

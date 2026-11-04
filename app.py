@@ -65,6 +65,23 @@ def create_app(test_config=None):
         """Render the landing page."""
         return render_template('index.html')
 
+    # --- Error Handlers ---
+    @app.errorhandler(400)
+    def bad_request_error(error):
+        return render_template('errors/400.html'), 400
+
+    @app.errorhandler(403)
+    def forbidden_error(error):
+        return render_template('errors/403.html'), 403
+
+    @app.errorhandler(404)
+    def not_found_error(error):
+        return render_template('errors/404.html'), 404
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        return render_template('errors/500.html'), 500
+
     return app
 
 
