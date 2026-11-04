@@ -50,6 +50,9 @@ def create_app(test_config=None):
     import student
     app.register_blueprint(student.bp)
 
+    import admin
+    app.register_blueprint(admin.bp)
+
     @app.context_processor
     def inject_helpers():
         return {

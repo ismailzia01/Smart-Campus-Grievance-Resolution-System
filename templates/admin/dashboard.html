@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}Administrator Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Campus Grievance Administration</h1>
+        <p class="text-muted">Review, triage, reassign departments, and monitor campus-wide grievance resolution.</p>
+    </div>
+</div>
+
+<!-- Overview Stats Cards -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <span class="stat-label">Total Grievances</span>
+        <span class="stat-value" id="stat-total">{{ stats['total'] }}</span>
+    </div>
+    <div class="stat-card stat-card-open">
+        <span class="stat-label">Open / Triage</span>
+        <span class="stat-value" id="stat-open">{{ stats['open'] }}</span>
+    </div>
+    <div class="stat-card stat-card-progress">
+        <span class="stat-label">In Progress</span>
+        <span class="stat-value" id="stat-progress">{{ stats['in_progress'] }}</span>
+    </div>
+    <div class="stat-card stat-card-resolved">
+        <span class="stat-label">Resolved</span>
+        <span class="stat-value" id="stat-resolved">{{ stats['resolved'] }}</span>
+    </div>
+</div>
+
+<!-- Filters Bar -->
+<div class="filter-card">
+    <form method="GET" action="{{ url_for('admin.dashboard') }}" id="filter-form" class="filter-form">
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="filter-status">Status</label>
+                <select name="status" id="filter-status" class="form-control form-control-sm">
+                    <option value="">All Statuses</option>
+                    <option value="open" {% if current_status == 'open' %}selected{% endif %}>Open</option>
+                    <option value="in_progress" {% if current_status == 'in_progress' %}selected{% endif %}>In Progress</option>
+                    <option value="resolved" {% if current_status == 'resolved' %}selected{% endif %}>Resolved</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="filter-priority">Priority</label>
+                <select name="priority" id="filter-priority" class="form-control form-control-sm">
+                    <option value="">All Priorities</option>
+                    <option value="low" {% if current_priority == 'low' %}selected{% endif %}>Low</option>
+                    <option value="medium" {% if current_priority == 'medium' %}selected{% endif %}>Medium</option>
+                    <option value="high" {% if current_priority == 'high' %}selected{% endif %}>High</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="filter-department">Department</label>
+                <select name="department" id="filter-department" class="form-control form-control-sm">
+                    <option value="">All Departments</option>
+                    {% for d in departments %}
+                        <option value="{{ d['id'] }}" {% if current_department == d['id']|string %}selected{% endif %}>
+                            {{ d['name'] }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="filter-group filter-search-group">
+                <label for="filter-search">Search Keyword</label>
+                <input
+                    type="text"
+                    name="search"
+                    id="filter-search"
+                    class="form-control form-control-sm"
+                    placeholder="Search ticket, student, subject, location..."
+                    value="{{ current_search }}"
+                >
+            </div>
+
+            <div class="filter-actions">
+                <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+                <a href="{{ url_for('admin.dashboard') }}" class="btn btn-link btn-sm">Reset</a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- Grievances Table -->
+<div class="table-container">
+    <table class="data-table" id="admin-grievances-table">
+        <thead>
+            <tr>
+                <th>Ticket ID</th>
+                <th>Student</th>
+                <th>Category</th>
+                <th>Subject</th>
+                <th>Department</th>
+                <th>Location</th>
+                <th>Priority</th>
+                <th>Status</th>
+                <th>Submitted</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody id="grievances-tbody">
+            {% if grievances %}
+                {% for g in grievances %}
+                    <tr>
+                        <td class="cell-mono font-bold">{{ g['ticket_id'] }}</td>
+                        <td>
+                            <div class="student-cell">
+                                <span class="student-name">{{ g['student_name'] }}</span>
+                                <span class="student-email text-muted">{{ g['student_email'] }}</span>
+                            </div>
+                        </td>
+                        <td>{{ g['category'] }}</td>
+                        <td class="cell-subject">{{ g['subject'] }}</td>
+                        <td>{{ g['department_name'] or 'Unassigned' }}</td>
+                        <td class="text-muted">{{ g['location'] }}</td>
+                        <td>
+                            <span class="badge badge-priority-{{ g['priority'] }}">
+                                {{ g['priority'] | capitalize }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge badge-status-{{ g['status'] }}">
+                                {% if g['status'] == 'in_progress' %}
+                                    In Progress
+                                {% else %}
+                                    {{ g['status'] | capitalize }}
+                                {% endif %}
+                            </span>
+                        </td>
+                        <td class="cell-date text-muted">{{ g['created_at'][:16] }}</td>
+                        <td>
+                            <a href="{{ url_for('admin.view_grievance', id=g['id']) }}" class="btn btn-primary btn-sm">Manage</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            {% else %}
+                <tr id="no-results-row">
+                    <td colspan="10" class="text-center text-muted" style="padding: 32px;">
+                        No grievances found matching the specified criteria.
+                    </td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

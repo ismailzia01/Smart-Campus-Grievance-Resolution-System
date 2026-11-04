@@ -846,3 +846,152 @@ body {
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
     margin-top: 6px;
 }
+
+/* Stats Grid */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.stat-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+}
+
+.stat-card-open .stat-value {
+    color: #4338ca;
+}
+
+.stat-card-progress .stat-value {
+    color: #b45309;
+}
+
+.stat-card-resolved .stat-value {
+    color: #15803d;
+}
+
+/* Filter Card & Form */
+.filter-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.filter-row {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    min-width: 140px;
+}
+
+.filter-group label {
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+}
+
+.filter-search-group {
+    flex: 1;
+    min-width: 220px;
+}
+
+.form-control-sm {
+    padding: 6px 10px;
+    font-size: 13px;
+    height: 36px;
+}
+
+.filter-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    height: 36px;
+}
+
+.btn-link {
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    padding: 6px 10px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.btn-link:hover {
+    color: var(--text);
+}
+
+/* Table Enhancements */
+.student-cell {
+    display: flex;
+    flex-direction: column;
+}
+
+.student-name {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.student-email {
+    font-size: 12px;
+}
+
+.text-center {
+    text-align: center;
+}
+
+/* Admin Controls Grid */
+.admin-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+}
+
+.admin-control-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.admin-form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.admin-form button {
+    margin-top: auto;
+}
