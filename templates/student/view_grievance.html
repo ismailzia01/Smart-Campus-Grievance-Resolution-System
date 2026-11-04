@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Ticket {{ grievance['ticket_id'] }}{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="{{ url_for('student.dashboard') }}">My Grievances</a>
+    <span class="breadcrumb-separator">/</span>
+    <span>Ticket {{ grievance['ticket_id'] }}</span>
+</div>
+
+<div class="ticket-view">
+    <!-- Header Summary Card -->
+    <div class="card ticket-header-card">
+        <div class="ticket-header-top">
+            <div>
+                <span class="badge badge-subtle">{{ grievance['category'] }}</span>
+                <h1 class="ticket-title">{{ grievance['subject'] }}</h1>
+                <div class="ticket-meta-line">
+                    <span class="cell-mono font-bold">{{ grievance['ticket_id'] }}</span>
+                    <span class="meta-separator">•</span>
+                    <span>Submitted on {{ grievance['created_at'][:16] }}</span>
+                    <span class="meta-separator">•</span>
+                    <span>Location: <strong>{{ grievance['location'] }}</strong></span>
+                </div>
+            </div>
+            <div class="ticket-badges">
+                <div>
+                    <label class="badge-label">Status</label>
+                    <span class="badge badge-lg badge-status-{{ grievance['status'] }}">
+                        {% if grievance['status'] == 'in_progress' %}
+                            In Progress
+                        {% else %}
+                            {{ grievance['status'] | capitalize }}
+                        {% endif %}
+                    </span>
+                </div>
+                <div>
+                    <label class="badge-label">Priority</label>
+                    <span class="badge badge-lg badge-priority-{{ grievance['priority'] }}">
+                        {{ grievance['priority'] | capitalize }}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div class="ticket-meta-grid">
+            <div class="meta-item">
+                <span class="meta-label">Assigned Department</span>
+                <span class="meta-value">{{ grievance['department_name'] or 'Pending Assignment' }}</span>
+            </div>
+            <div class="meta-item">
+                <span class="meta-label">Last Updated</span>
+                <span class="meta-value">{{ grievance['updated_at'][:16] }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resolution Details Section (if resolved) -->
+    {% if grievance['status'] == 'resolved' %}
+        <div class="card resolution-card">
+            <div class="resolution-header">
+                <h3>Official Resolution Notes</h3>
+                <span class="badge badge-status-resolved">Resolved</span>
+            </div>
+            <div class="resolution-body">
+                <p>{{ grievance['resolution_details'] or 'The reported grievance has been addressed and marked as resolved by campus administration.' }}</p>
+            </div>
+        </div>
+    {% endif %}
+
+    <!-- Problem Description -->
+    <div class="card ticket-section-card">
+        <h3 class="section-heading">Detailed Problem Description</h3>
+        <div class="ticket-description preserve-lines">{{ grievance['description'] }}</div>
+    </div>
+
+    <!-- Administrative Audit Timeline -->
+    <div class="card ticket-section-card">
+        <h3 class="section-heading">Audit & Resolution Timeline</h3>
+        <p class="text-muted section-subtext">Verifiable chronological audit log of all status transitions and administrative updates.</p>
+
+        {% if logs %}
+            <div class="timeline">
+                {% for log in logs %}
+                    <div class="timeline-item">
+                        <div class="timeline-marker"></div>
+                        <div class="timeline-content">
+                            <div class="timeline-header">
+                                <span class="timeline-action">
+                                    {% if log['action'] == 'created' %}
+                                        Ticket Created
+                                    {% elif log['action'] == 'status_change' %}
+                                        Status changed: <span class="badge badge-sm badge-status-{{ log['old_value'] }}">{{ log['old_value'] }}</span> → <span class="badge badge-sm badge-status-{{ log['new_value'] }}">{{ log['new_value'] }}</span>
+                                    {% elif log['action'] == 'priority_change' %}
+                                        Priority changed: <strong>{{ log['old_value'] }}</strong> → <strong>{{ log['new_value'] }}</strong>
+                                    {% elif log['action'] == 'department_change' %}
+                                        Assigned Department changed: <strong>{{ log['new_value'] }}</strong>
+                                    {% else %}
+                                        {{ log['action'] | replace('_', ' ') | capitalize }}
+                                    {% endif %}
+                                </span>
+                                <span class="timeline-date">{{ log['created_at'][:16] }}</span>
+                            </div>
+                            <div class="timeline-meta">
+                                By <span class="timeline-actor">{{ log['actor_name'] }}</span> ({{ log['actor_role'] | capitalize }})
+                            </div>
+                            {% if log['remarks'] %}
+                                <div class="timeline-remarks">
+                                    "{{ log['remarks'] }}"
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="text-muted">No timeline entries recorded.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

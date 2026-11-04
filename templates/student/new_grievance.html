@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Submit New Grievance{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="{{ url_for('student.dashboard') }}">My Grievances</a>
+    <span class="breadcrumb-separator">/</span>
+    <span>Submit New Ticket</span>
+</div>
+
+<div class="form-card-container">
+    <div class="form-card">
+        <div class="form-card-header">
+            <h2>Campus Grievance Submission Form</h2>
+            <p class="text-muted">
+                Please provide accurate details regarding the campus issue. Your report will be automatically
+                directed to the responsible administrative department for inspection and resolution.
+            </p>
+        </div>
+
+        <form method="POST" action="{{ url_for('student.new_grievance') }}" class="grievance-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-group">
+                <label for="category">Grievance Category <span class="required">*</span></label>
+                <select id="category" name="category" class="form-control" required>
+                    <option value="" disabled selected>-- Select an Issue Category --</option>
+                    {% for cat in categories %}
+                        <option value="{{ cat }}">{{ cat }}</option>
+                    {% endfor %}
+                </select>
+                <small class="form-text">
+                    Selecting a category automatically routes the ticket to the relevant department (e.g., IT, Maintenance, Hostel, or Library).
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label for="location">Campus Location <span class="required">*</span></label>
+                <input
+                    type="text"
+                    id="location"
+                    name="location"
+                    class="form-control"
+                    placeholder="e.g., Academic Block B, Room 302 or Central Library 2nd Floor"
+                    required
+                >
+                <small class="form-text">Be specific (block, floor, room number or building wing).</small>
+            </div>
+
+            <div class="form-group">
+                <label for="subject">Subject Summary <span class="required">*</span></label>
+                <input
+                    type="text"
+                    id="subject"
+                    name="subject"
+                    class="form-control"
+                    placeholder="Brief 1-sentence summary of the problem"
+                    minlength="5"
+                    required
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="description">Detailed Description <span class="required">*</span></label>
+                <textarea
+                    id="description"
+                    name="description"
+                    rows="6"
+                    class="form-control"
+                    placeholder="Describe what happened, when the issue was observed, and any other relevant context..."
+                    minlength="10"
+                    required
+                ></textarea>
+            </div>
+
+            <div class="form-actions form-actions-between">
+                <a href="{{ url_for('student.dashboard') }}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">Submit Grievance Ticket</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

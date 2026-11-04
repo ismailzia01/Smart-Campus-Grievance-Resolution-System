@@ -47,6 +47,9 @@ def create_app(test_config=None):
     import auth
     app.register_blueprint(auth.bp)
 
+    import student
+    app.register_blueprint(student.bp)
+
     @app.context_processor
     def inject_helpers():
         return {
