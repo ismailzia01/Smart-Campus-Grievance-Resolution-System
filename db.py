@@ -33,21 +33,62 @@ def close_db(e=None):
         db.close()
 
 
-def init_db():
+def database_has_tables(db):
+    """Check if the database already contains application tables."""
+    cursor = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('users', 'departments', 'grievances', 'grievance_logs')"
+    )
+    return cursor.fetchone() is not None
+
+
+def init_db(force=False):
     """Initialize the database by executing schema.sql.
 
-    WARNING: This drops and recreates all tables.
+    Refuses to overwrite an existing database containing tables unless force=True.
     """
     db = get_db()
+    if database_has_tables(db) and not force:
+        raise RuntimeError(
+            'Database already contains existing tables. Initialization aborted to prevent data loss. '
+            'Use "flask reset-db" to perform a destructive reset.'
+        )
     with current_app.open_resource('schema.sql') as f:
         db.executescript(f.read().decode('utf-8'))
 
 
+def reset_db():
+    """Destructively drop all existing tables and re-initialize the database."""
+    db = get_db()
+    db.execute('PRAGMA foreign_keys = OFF')
+    drop_statements = '''
+        DROP TABLE IF EXISTS grievance_logs;
+        DROP TABLE IF EXISTS grievances;
+        DROP TABLE IF EXISTS departments;
+        DROP TABLE IF EXISTS users;
+    '''
+    db.executescript(drop_statements)
+    db.execute('PRAGMA foreign_keys = ON')
+    init_db(force=True)
+
+
 @click.command('init-db')
 def init_db_command():
-    """Clear existing data and create fresh tables."""
-    init_db()
-    click.echo('Database initialized.')
+    """Initialize database tables without overwriting existing data."""
+    try:
+        init_db()
+        click.echo('Database initialized successfully.')
+    except RuntimeError as e:
+        click.echo(f'Initialization cancelled: {e}', err=True)
+
+
+@click.command('reset-db')
+@click.confirmation_option(
+    prompt='WARNING: This will permanently delete all existing tables and data. Are you sure you want to proceed?'
+)
+def reset_db_command():
+    """Destructively reset and recreate all database tables."""
+    reset_db()
+    click.echo('Database reset successfully. All previous tables have been cleared and recreated.')
 
 
 def init_app(app):
@@ -57,4 +98,5 @@ def init_app(app):
     """
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
+    app.cli.add_command(reset_db_command)
 

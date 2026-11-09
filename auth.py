@@ -3,7 +3,9 @@ Authentication Blueprint for the Smart Campus Grievance System.
 Handles registration, login, logout, session management, and authorization decorators.
 """
 
+import re
 from functools import wraps
+from urllib.parse import urlparse
 
 from flask import (
     Blueprint,
@@ -22,6 +24,53 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from db import get_db
 
 bp = Blueprint('auth', __name__, url_prefix='/auth')
+
+# RFC 5322 compliant regex for structural email validation without external dependencies
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$')
+
+
+def is_valid_email(email):
+    """Validate basic email format without adding external dependencies."""
+    if not email or not isinstance(email, str):
+        return False
+    email = email.strip()
+    if len(email) > 254:
+        return False
+    return bool(EMAIL_REGEX.match(email))
+
+
+def is_safe_redirect_url(target):
+    """Ensure the redirect target is a safe relative application path.
+
+    Rejects:
+    - None or empty targets
+    - Protocol-relative URLs (e.g. //evil.com, /\\evil.com)
+    - Absolute URLs with schemes or hostnames (e.g. http://evil.com)
+    - Paths containing backslashes or null bytes
+    - Destinations not starting with a single leading slash
+    """
+    if not target or not isinstance(target, str):
+        return False
+
+    target = target.strip()
+
+    # Prevent protocol-relative URLs and backslash evasion
+    if target.startswith('//') or target.startswith('/\\') or '\\' in target:
+        return False
+
+    # Must start with a single '/'
+    if not target.startswith('/'):
+        return False
+
+    try:
+        parsed = urlparse(target)
+        # Ensure no scheme (e.g. http:, javascript:) and no netloc (e.g. evil.com)
+        if parsed.scheme != '' or parsed.netloc != '':
+            return False
+    except Exception:
+        return False
+
+    return True
 
 
 @bp.before_app_request
@@ -81,12 +130,19 @@ def register():
         errors = []
         if not full_name:
             errors.append('Full name is required.')
-        if not email or '@' not in email:
-            errors.append('A valid email address is required.')
+        elif len(full_name) > 100:
+            errors.append('Full name cannot exceed 100 characters.')
+
+        if not email or not is_valid_email(email):
+            errors.append('A valid campus email address is required (e.g., student@smartcampus.edu).')
+
         if not password:
             errors.append('Password is required.')
-        elif len(password) < 6:
-            errors.append('Password must be at least 6 characters long.')
+        elif len(password) < 8:
+            errors.append('Password must be at least 8 characters long.')
+        elif len(password) > 128:
+            errors.append('Password cannot exceed 128 characters.')
+
         if password != confirm_password:
             errors.append('Passwords do not match.')
 
@@ -147,7 +203,7 @@ def login():
 
             # Respect 'next' redirect if provided and safe
             next_url = request.args.get('next')
-            if next_url and next_url.startswith('/'):
+            if next_url and is_safe_redirect_url(next_url):
                 return redirect(next_url)
 
             # Redirect based on user role

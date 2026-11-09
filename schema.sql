@@ -1,13 +1,8 @@
 -- Smart Campus Grievance & Resolution System
 -- Database schema for SQLite
 
-DROP TABLE IF EXISTS grievance_logs;
-DROP TABLE IF EXISTS grievances;
-DROP TABLE IF EXISTS departments;
-DROP TABLE IF EXISTS users;
-
 -- Users: students and administrators
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     full_name     TEXT    NOT NULL,
     email         TEXT    NOT NULL UNIQUE,
@@ -17,14 +12,14 @@ CREATE TABLE users (
 );
 
 -- Campus departments that handle grievances
-CREATE TABLE departments (
+CREATE TABLE IF NOT EXISTS departments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     name        TEXT    NOT NULL UNIQUE,
     description TEXT
 );
 
 -- Grievance submissions
-CREATE TABLE grievances (
+CREATE TABLE IF NOT EXISTS grievances (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     ticket_id          TEXT    NOT NULL UNIQUE,
     student_id         INTEGER NOT NULL,
@@ -44,7 +39,7 @@ CREATE TABLE grievances (
 );
 
 -- Audit trail for every grievance change
-CREATE TABLE grievance_logs (
+CREATE TABLE IF NOT EXISTS grievance_logs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     grievance_id INTEGER NOT NULL,
     changed_by   INTEGER NOT NULL,
@@ -59,8 +54,9 @@ CREATE TABLE grievance_logs (
 );
 
 -- Indexes for common queries
-CREATE INDEX idx_grievances_student    ON grievances(student_id);
-CREATE INDEX idx_grievances_status     ON grievances(status);
-CREATE INDEX idx_grievances_department ON grievances(department_id);
-CREATE INDEX idx_logs_grievance        ON grievance_logs(grievance_id);
+CREATE INDEX IF NOT EXISTS idx_grievances_student    ON grievances(student_id);
+CREATE INDEX IF NOT EXISTS idx_grievances_status     ON grievances(status);
+CREATE INDEX IF NOT EXISTS idx_grievances_department ON grievances(department_id);
+CREATE INDEX IF NOT EXISTS idx_logs_grievance        ON grievance_logs(grievance_id);
+
 
