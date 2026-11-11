@@ -5,6 +5,8 @@ asynchronous filtering, department reassignment, priority adjustment,
 status transitions, and transactional audit logging.
 """
 
+import math
+
 from flask import (
     Blueprint,
     abort,
@@ -25,9 +27,41 @@ bp = Blueprint('admin', __name__, url_prefix='/admin')
 ALLOWED_STATUSES = ['open', 'in_progress', 'resolved']
 ALLOWED_PRIORITIES = ['low', 'medium', 'high']
 
+# Explicitly allowed status transitions: open -> in_progress, open -> resolved, in_progress -> resolved
+# Backward transitions and reopening are strictly forbidden
+VALID_STATUS_TRANSITIONS = {
+    'open': ['in_progress', 'resolved'],
+    'in_progress': ['resolved'],
+    'resolved': [],
+}
 
-def build_grievance_query(status=None, priority=None, department_id=None, search=None):
-    """Construct filtered grievance query and parameters."""
+
+def validate_admin_filters(db, status=None, priority=None, department_id=None):
+    """Validate admin filter parameters against allowed values and database records.
+
+    Returns a list of error strings if any filter is invalid.
+    """
+    errors = []
+    if status and status not in ALLOWED_STATUSES:
+        errors.append(f"Invalid status filter '{status}'. Allowed statuses: {', '.join(ALLOWED_STATUSES)}.")
+
+    if priority and priority not in ALLOWED_PRIORITIES:
+        errors.append(f"Invalid priority filter '{priority}'. Allowed priorities: {', '.join(ALLOWED_PRIORITIES)}.")
+
+    if department_id:
+        try:
+            dept_id_int = int(department_id)
+            dept = db.execute('SELECT id FROM departments WHERE id = ?', (dept_id_int,)).fetchone()
+            if not dept:
+                errors.append(f"Department ID '{department_id}' does not exist.")
+        except (ValueError, TypeError):
+            errors.append(f"Invalid department filter '{department_id}'. Must be a valid department ID.")
+
+    return errors
+
+
+def build_grievance_query(status=None, priority=None, department_id=None, search=None, limit=None, offset=None):
+    """Construct filtered grievance query and parameters with optional pagination."""
     query = '''
         SELECT g.id, g.ticket_id, g.category, g.subject, g.location,
                g.priority, g.status, g.created_at, g.updated_at,
@@ -53,7 +87,7 @@ def build_grievance_query(status=None, priority=None, department_id=None, search
             dept_id_int = int(department_id)
             query += ' AND g.department_id = ?'
             params.append(dept_id_int)
-        except ValueError:
+        except (ValueError, TypeError):
             pass
 
     if search:
@@ -71,13 +105,65 @@ def build_grievance_query(status=None, priority=None, department_id=None, search
         params.extend([search_pattern] * 6)
 
     query += ' ORDER BY g.created_at DESC'
+
+    if limit is not None:
+        query += ' LIMIT ?'
+        params.append(int(limit))
+        if offset is not None:
+            query += ' OFFSET ?'
+            params.append(int(offset))
+
     return query, params
+
+
+def count_filtered_grievances(db, status=None, priority=None, department_id=None, search=None):
+    """Count total matching grievances for pagination."""
+    query = '''
+        SELECT COUNT(*)
+        FROM grievances g
+        LEFT JOIN departments d ON g.department_id = d.id
+        JOIN users u ON g.student_id = u.id
+        WHERE 1=1
+    '''
+    params = []
+
+    if status and status in ALLOWED_STATUSES:
+        query += ' AND g.status = ?'
+        params.append(status)
+
+    if priority and priority in ALLOWED_PRIORITIES:
+        query += ' AND g.priority = ?'
+        params.append(priority)
+
+    if department_id:
+        try:
+            dept_id_int = int(department_id)
+            query += ' AND g.department_id = ?'
+            params.append(dept_id_int)
+        except (ValueError, TypeError):
+            pass
+
+    if search:
+        search_pattern = f'%{search.strip()}%'
+        query += '''
+            AND (
+                g.ticket_id LIKE ? OR
+                g.subject LIKE ? OR
+                g.description LIKE ? OR
+                g.location LIKE ? OR
+                u.full_name LIKE ? OR
+                u.email LIKE ?
+            )
+        '''
+        params.extend([search_pattern] * 6)
+
+    return db.execute(query, params).fetchone()[0]
 
 
 @bp.route('/dashboard')
 @admin_required
 def dashboard():
-    """Administrative dashboard displaying all campus grievances with filter controls."""
+    """Administrative dashboard displaying campus grievances with filters and pagination."""
     db = get_db()
 
     # Extract filter parameters
@@ -86,18 +172,60 @@ def dashboard():
     department_id = request.args.get('department', '').strip()
     search = request.args.get('search', '').strip()
 
-    query, params = build_grievance_query(status, priority, department_id, search)
+    # Validate filters instead of silently ignoring invalid options
+    filter_errors = validate_admin_filters(db, status, priority, department_id)
+    if filter_errors:
+        for err in filter_errors:
+            flash(err, 'danger')
+
+    # Pagination setup (10 records per page)
+    try:
+        page = int(request.args.get('page', 1))
+    except (ValueError, TypeError):
+        page = 1
+    if page < 1:
+        page = 1
+
+    per_page = 10
+    total_items = count_filtered_grievances(db, status, priority, department_id, search)
+    total_pages = max(1, math.ceil(total_items / per_page))
+    if page > total_pages and total_items > 0:
+        page = total_pages
+
+    offset = (page - 1) * per_page
+    query, params = build_grievance_query(status, priority, department_id, search, limit=per_page, offset=offset)
     grievances = db.execute(query, params).fetchall()
 
     departments = db.execute('SELECT id, name FROM departments ORDER BY name ASC').fetchall()
 
-    # Calculate summary statistics for admin overview cards
     stats = {
         'total': db.execute('SELECT COUNT(*) FROM grievances').fetchone()[0],
         'open': db.execute("SELECT COUNT(*) FROM grievances WHERE status = 'open'").fetchone()[0],
         'in_progress': db.execute("SELECT COUNT(*) FROM grievances WHERE status = 'in_progress'").fetchone()[0],
         'resolved': db.execute("SELECT COUNT(*) FROM grievances WHERE status = 'resolved'").fetchone()[0],
     }
+
+    pagination = {
+        'page': page,
+        'per_page': per_page,
+        'total_items': total_items,
+        'total_pages': total_pages,
+        'has_prev': page > 1,
+        'has_next': page < total_pages,
+        'prev_page': page - 1,
+        'next_page': page + 1,
+    }
+
+    # Preserve search and filter parameters for pagination links
+    filter_params = {}
+    if status:
+        filter_params['status'] = status
+    if priority:
+        filter_params['priority'] = priority
+    if department_id:
+        filter_params['department'] = department_id
+    if search:
+        filter_params['search'] = search
 
     return render_template(
         'admin/dashboard.html',
@@ -108,6 +236,8 @@ def dashboard():
         current_priority=priority,
         current_department=department_id,
         current_search=search,
+        pagination=pagination,
+        filter_params=filter_params,
     )
 
 
@@ -117,12 +247,19 @@ def api_grievances():
     """JSON API endpoint for asynchronous admin filtering.
 
     Provides filtered grievance data for dynamic UI updates without full page reload.
+    Validates invalid filters with 400 Bad Request.
+    Removes unnecessary student personal information (such as personal email) from responses.
     """
     db = get_db()
     status = request.args.get('status', '').strip()
     priority = request.args.get('priority', '').strip()
     department_id = request.args.get('department', '').strip()
     search = request.args.get('search', '').strip()
+
+    # Validate filters instead of silently ignoring
+    filter_errors = validate_admin_filters(db, status, priority, department_id)
+    if filter_errors:
+        return jsonify({'error': 'Invalid filter parameters', 'messages': filter_errors}), 400
 
     query, params = build_grievance_query(status, priority, department_id, search)
     rows = db.execute(query, params).fetchall()
@@ -140,7 +277,7 @@ def api_grievances():
             'created_at': r['created_at'][:16],
             'department_name': r['department_name'] or 'Pending Assignment',
             'student_name': r['student_name'],
-            'student_email': r['student_email'],
+            # Removed unnecessary student personal email to protect student privacy in API responses
             'url': url_for('admin.view_grievance', id=r['id']),
         })
 
@@ -207,13 +344,22 @@ def update_status(id):
 
     old_status = grievance['status']
 
-    # Workflow validation: no backward transition from resolved
-    if old_status == 'resolved' and new_status != 'resolved':
-        flash('A resolved grievance cannot be reopened.', 'danger')
-        return redirect(url_for('admin.view_grievance', id=id))
-
     if old_status == new_status:
         flash(f'Grievance is already marked as {new_status}.', 'warning')
+        return redirect(url_for('admin.view_grievance', id=id))
+
+    # Enforce explicit status transitions: open -> in_progress, open -> resolved, in_progress -> resolved
+    # No backward transitions or reopening
+    allowed_next = VALID_STATUS_TRANSITIONS.get(old_status, [])
+    if new_status not in allowed_next:
+        if old_status == 'resolved':
+            flash('A resolved grievance cannot be reopened.', 'danger')
+        else:
+            flash(
+                f'Invalid status transition from {old_status} to {new_status}. '
+                'Backward transitions are not permitted.',
+                'danger',
+            )
         return redirect(url_for('admin.view_grievance', id=id))
 
     if new_status == 'resolved' and not resolution_details:

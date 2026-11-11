@@ -150,7 +150,7 @@ function initAdminLiveFilter() {
                 <td>
                     <div class="student-cell">
                         <span class="student-name">${escapeHtml(g.student_name)}</span>
-                        <span class="student-email text-muted">${escapeHtml(g.student_email)}</span>
+                        ${g.student_email ? `<span class="student-email text-muted">${escapeHtml(g.student_email)}</span>` : ''}
                     </div>
                 </td>
                 <td>${escapeHtml(g.category)}</td>

@@ -150,25 +150,42 @@ def new_grievance():
 def view_grievance(id):
     """View details and timeline of a submitted grievance.
 
-    Access Control: Students are strictly restricted to their own grievances.
+    Access Control: Student grievance ownership is enforced directly in the SQL query.
+    Students can only retrieve and access their own submitted grievances.
     """
     db = get_db()
-    grievance = db.execute(
-        '''
-        SELECT g.*, d.name AS department_name
-        FROM grievances g
-        LEFT JOIN departments d ON g.department_id = d.id
-        WHERE g.id = ?
-        ''',
-        (id,),
-    ).fetchone()
 
-    if grievance is None:
-        abort(404)
+    if g.user['role'] == 'admin':
+        grievance = db.execute(
+            '''
+            SELECT g.*, d.name AS department_name
+            FROM grievances g
+            LEFT JOIN departments d ON g.department_id = d.id
+            WHERE g.id = ?
+            ''',
+            (id,),
+        ).fetchone()
 
-    # Enforce student ownership: return 403 Forbidden if not the grievance owner
-    if grievance['student_id'] != g.user['id'] and g.user['role'] != 'admin':
-        abort(403)
+        if grievance is None:
+            abort(404)
+    else:
+        # Enforce student ownership directly in the SQL query
+        grievance = db.execute(
+            '''
+            SELECT g.*, d.name AS department_name
+            FROM grievances g
+            LEFT JOIN departments d ON g.department_id = d.id
+            WHERE g.id = ? AND g.student_id = ?
+            ''',
+            (id, g.user['id']),
+        ).fetchone()
+
+        if grievance is None:
+            # Check if the grievance exists to distinguish 403 Forbidden from 404 Not Found
+            exists = db.execute('SELECT 1 FROM grievances WHERE id = ?', (id,)).fetchone()
+            if exists:
+                abort(403)
+            abort(404)
 
     # Fetch audit history logs for this grievance
     logs = db.execute(

@@ -54,8 +54,10 @@ def seed_departments():
 def provision_admin(email, password, full_name='Campus Administrator'):
     """Provision an admin user.
 
-    If an administrator account with the given email already exists,
-    it is preserved untouched (password is NEVER reset).
+    Security & Safety Guarantees:
+    - Never promotes an existing student account to administrator.
+    - Never overwrites an existing administrator password.
+    - Creates a new admin account only if the email is unregistered.
     """
     db = get_db()
     existing = db.execute(
@@ -64,6 +66,8 @@ def provision_admin(email, password, full_name='Campus Administrator'):
     ).fetchone()
 
     if existing is not None:
+        if existing['role'] == 'student':
+            return False, f"Account with email ({email}) is an existing student account. Promoting student accounts to administrator is prohibited."
         return False, f"Admin account ({email}) already exists. Preserving existing account without modification."
 
     db.execute(
@@ -81,15 +85,18 @@ def provision_admin(email, password, full_name='Campus Administrator'):
 
 @click.command('seed-db')
 @click.option('--email', default=None, help='Admin email address')
-@click.option('--password', default=None, help='Admin password')
-def seed_db_command(email, password):
-    """Seed departments and provision the administrator account."""
+def seed_db_command(email):
+    """Seed departments and provision the administrator account.
+
+    Passwords are never accepted as command-line arguments to prevent
+    credential exposure in process lists and shell history.
+    """
     seed_departments()
     click.echo('Departments seeded.')
 
-    # Determine admin credentials: CLI options -> Environment variables -> Interactive prompt
+    # Determine admin credentials: CLI email option or Environment -> Interactive prompt
     admin_email = email or os.environ.get('ADMIN_EMAIL')
-    admin_password = password or os.environ.get('ADMIN_PASSWORD')
+    admin_password = os.environ.get('ADMIN_PASSWORD')
 
     # If credentials are not present and running in an interactive terminal, prompt for them
     if not admin_email:
@@ -107,7 +114,7 @@ def seed_db_command(email, password):
                 confirmation_prompt=True,
             )
         else:
-            click.echo('No ADMIN_PASSWORD provided in environment or arguments. Skipping admin provisioning.')
+            click.echo('No ADMIN_PASSWORD provided in environment. Skipping admin provisioning.')
             return
 
     created, message = provision_admin(admin_email, admin_password)
