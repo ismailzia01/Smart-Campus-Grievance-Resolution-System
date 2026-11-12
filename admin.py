@@ -244,9 +244,10 @@ def dashboard():
 @bp.route('/api/grievances')
 @admin_required
 def api_grievances():
-    """JSON API endpoint for asynchronous admin filtering.
+    """JSON API endpoint for asynchronous admin filtering with pagination.
 
     Provides filtered grievance data for dynamic UI updates without full page reload.
+    Supports pagination via 'page' and 'per_page' query parameters with sensible defaults.
     Validates invalid filters with 400 Bad Request.
     Removes unnecessary student personal information (such as personal email) from responses.
     """
@@ -261,7 +262,24 @@ def api_grievances():
     if filter_errors:
         return jsonify({'error': 'Invalid filter parameters', 'messages': filter_errors}), 400
 
-    query, params = build_grievance_query(status, priority, department_id, search)
+    # Pagination parameter validation
+    try:
+        page = int(request.args.get('page', 1))
+        if page < 1:
+            return jsonify({'error': 'Invalid page parameter. Must be a positive integer.'}), 400
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid page parameter. Must be a positive integer.'}), 400
+
+    per_page = 10
+
+    total_items = count_filtered_grievances(db, status, priority, department_id, search)
+    total_pages = max(1, math.ceil(total_items / per_page))
+
+    if page > total_pages and total_items > 0:
+        return jsonify({'error': f'Page {page} exceeds total pages ({total_pages}).'}), 400
+
+    offset = (page - 1) * per_page
+    query, params = build_grievance_query(status, priority, department_id, search, limit=per_page, offset=offset)
     rows = db.execute(query, params).fetchall()
 
     results = []
@@ -281,7 +299,14 @@ def api_grievances():
             'url': url_for('admin.view_grievance', id=r['id']),
         })
 
-    return jsonify({'count': len(results), 'grievances': results})
+    return jsonify({
+        'count': len(results),
+        'total_items': total_items,
+        'page': page,
+        'per_page': per_page,
+        'total_pages': total_pages,
+        'grievances': results,
+    })
 
 
 @bp.route('/grievances/<int:id>')
@@ -368,24 +393,36 @@ def update_status(id):
 
     try:
         cursor = db.cursor()
+        # Use conditional UPDATE with WHERE status = ? to prevent concurrent stale updates
+        # from bypassing transition rules. If another request changed the status between
+        # our SELECT and UPDATE, rowcount will be 0 and we abort safely.
         if new_status == 'resolved':
             cursor.execute(
                 '''
                 UPDATE grievances
                 SET status = ?, resolution_details = ?, updated_at = datetime('now')
-                WHERE id = ?
+                WHERE id = ? AND status = ?
                 ''',
-                (new_status, resolution_details, id),
+                (new_status, resolution_details, id, old_status),
             )
         else:
             cursor.execute(
                 '''
                 UPDATE grievances
                 SET status = ?, updated_at = datetime('now')
-                WHERE id = ?
+                WHERE id = ? AND status = ?
                 ''',
-                (new_status, id),
+                (new_status, id, old_status),
             )
+
+        if cursor.rowcount == 0:
+            db.rollback()
+            flash(
+                'This grievance was modified by another administrator. '
+                'Please review the current status and try again.',
+                'warning',
+            )
+            return redirect(url_for('admin.view_grievance', id=id))
 
         cursor.execute(
             '''

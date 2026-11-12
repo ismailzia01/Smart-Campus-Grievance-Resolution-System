@@ -152,6 +152,8 @@ def view_grievance(id):
 
     Access Control: Student grievance ownership is enforced directly in the SQL query.
     Students can only retrieve and access their own submitted grievances.
+    Returns uniform 404 for both nonexistent tickets and other students' tickets
+    to prevent ticket ID enumeration.
     """
     db = get_db()
 
@@ -181,10 +183,8 @@ def view_grievance(id):
         ).fetchone()
 
         if grievance is None:
-            # Check if the grievance exists to distinguish 403 Forbidden from 404 Not Found
-            exists = db.execute('SELECT 1 FROM grievances WHERE id = ?', (id,)).fetchone()
-            if exists:
-                abort(403)
+            # Return uniform 404 for both nonexistent tickets and tickets belonging
+            # to other students, preventing ticket ID enumeration attacks
             abort(404)
 
     # Fetch audit history logs for this grievance
