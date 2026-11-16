@@ -32,6 +32,7 @@
 
 <!-- Filters Bar -->
 <div class="filter-card">
+    <div id="filter-error-banner" class="alert alert-danger" style="display: none; margin-bottom: 16px;"></div>
     <form method="GET" action="{{ url_for('admin.dashboard') }}" id="filter-form" class="filter-form">
         <div class="filter-row">
             <div class="filter-group">
@@ -111,7 +112,6 @@
                         <td>
                             <div class="student-cell">
                                 <span class="student-name">{{ g['student_name'] }}</span>
-                                <span class="student-email text-muted">{{ g['student_email'] }}</span>
                             </div>
                         </td>
                         <td>{{ g['category'] }}</td>
@@ -149,29 +149,49 @@
     </table>
 </div>
 
-{% if pagination and pagination.total_pages > 1 %}
-    <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding: 12px 0;">
-        <span class="text-muted" style="font-size: 0.875rem;">
-            Showing {{ ((pagination.page - 1) * pagination.per_page) + 1 }} to {{ [pagination.page * pagination.per_page, pagination.total_items] | min }} of {{ pagination.total_items }} grievances
-        </span>
-        <div class="pagination-controls" style="display: flex; gap: 8px; align-items: center;">
-            {% if pagination.has_prev %}
-                <a href="{{ url_for('admin.dashboard', page=pagination.prev_page, **filter_params) }}" class="btn btn-secondary btn-sm">&larr; Previous</a>
+<div class="pagination-container" id="pagination-container" style="display: {% if pagination and pagination.total_pages > 1 %}flex{% else %}none{% endif %}; justify-content: space-between; align-items: center; margin-top: 16px; padding: 12px 0;">
+        <span class="text-muted" id="pagination-summary" style="font-size: 0.875rem;">
+            {% if pagination and pagination.total_items > 0 %}
+                Showing {{ ((pagination.page - 1) * pagination.per_page) + 1 }} to {{ [pagination.page * pagination.per_page, pagination.total_items] | min }} of {{ pagination.total_items }} grievances
             {% else %}
-                <span class="btn btn-secondary btn-sm" style="opacity: 0.5; pointer-events: none;">&larr; Previous</span>
+                Showing 0 of 0 grievances
             {% endif %}
+        </span>
+        <div class="pagination-controls" id="pagination-controls" style="display: flex; gap: 8px; align-items: center;">
+            <a
+                id="pagination-prev"
+                class="btn btn-secondary btn-sm"
+                {% if pagination and pagination.has_prev %}
+                    href="{{ url_for('admin.dashboard', page=pagination.prev_page, **filter_params) }}"
+                    data-page="{{ pagination.prev_page }}"
+                    aria-disabled="false"
+                    tabindex="0"
+                {% else %}
+                    aria-disabled="true"
+                    tabindex="-1"
+                    style="opacity: 0.5; pointer-events: none;"
+                {% endif %}
+            >&larr; Previous</a>
 
-            <span class="text-muted" style="font-size: 0.875rem; padding: 0 8px;">
-                Page {{ pagination.page }} of {{ pagination.total_pages }}
+            <span class="text-muted" id="pagination-indicator" style="font-size: 0.875rem; padding: 0 8px;">
+                Page {{ pagination.page if pagination else 1 }} of {{ pagination.total_pages if pagination else 1 }}
             </span>
 
-            {% if pagination.has_next %}
-                <a href="{{ url_for('admin.dashboard', page=pagination.next_page, **filter_params) }}" class="btn btn-secondary btn-sm">Next &rarr;</a>
-            {% else %}
-                <span class="btn btn-secondary btn-sm" style="opacity: 0.5; pointer-events: none;">Next &rarr;</span>
-            {% endif %}
+            <a
+                id="pagination-next"
+                class="btn btn-secondary btn-sm"
+                {% if pagination and pagination.has_next %}
+                    href="{{ url_for('admin.dashboard', page=pagination.next_page, **filter_params) }}"
+                    data-page="{{ pagination.next_page }}"
+                    aria-disabled="false"
+                    tabindex="0"
+                {% else %}
+                    aria-disabled="true"
+                    tabindex="-1"
+                    style="opacity: 0.5; pointer-events: none;"
+                {% endif %}
+            >Next &rarr;</a>
         </div>
     </div>
-{% endif %}
 {% endblock %}
 

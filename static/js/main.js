@@ -66,6 +66,7 @@ function initResolutionFieldToggle() {
 
 /**
  * Asynchronous filtering on the admin dashboard using the JSON API endpoint.
+ * Integrates live filtering with pagination, URL synchronization, and error handling.
  */
 function initAdminLiveFilter() {
     const filterForm = document.getElementById('filter-form');
@@ -75,15 +76,25 @@ function initAdminLiveFilter() {
     const departmentSelect = document.getElementById('filter-department');
     const searchInput = document.getElementById('filter-search');
 
+    const paginationContainer = document.getElementById('pagination-container');
+    const paginationSummary = document.getElementById('pagination-summary');
+    const paginationIndicator = document.getElementById('pagination-indicator');
+    const paginationPrev = document.getElementById('pagination-prev');
+    const paginationNext = document.getElementById('pagination-next');
+    const errorBanner = document.getElementById('filter-error-banner');
+
     if (!filterForm || !tbody) {
         return;
     }
 
     let debounceTimer = null;
+    let currentAbortController = null;
+    let latestRequestId = 0;
+    const initialParams = new URLSearchParams(window.location.search);
+    let currentPage = parseInt(initialParams.get('page'), 10) || 1;
 
-    function fetchFilteredGrievances() {
+    function buildFilterParams(page = 1) {
         const params = new URLSearchParams();
-
         if (statusSelect && statusSelect.value) {
             params.set('status', statusSelect.value);
         }
@@ -96,30 +107,165 @@ function initAdminLiveFilter() {
         if (searchInput && searchInput.value.trim()) {
             params.set('search', searchInput.value.trim());
         }
+        if (page > 1) {
+            params.set('page', page.toString());
+        }
+        return params;
+    }
 
-        const url = `/admin/api/grievances?${params.toString()}`;
+    function showFilterError(message) {
+        if (errorBanner) {
+            errorBanner.textContent = message;
+            errorBanner.style.display = 'block';
+        }
+    }
 
-        // Indicate loading
+    function hideFilterError() {
+        if (errorBanner) {
+            errorBanner.textContent = '';
+            errorBanner.style.display = 'none';
+        }
+    }
+
+    function updatePagination(data) {
+        if (!paginationContainer) {
+            return;
+        }
+
+        const page = data.page || 1;
+        const perPage = data.per_page || 10;
+        const totalItems = data.total_items !== undefined ? data.total_items : (data.count || 0);
+        const totalPages = data.total_pages || Math.max(1, Math.ceil(totalItems / perPage));
+
+        // Update total-record count and range summary
+        if (paginationSummary) {
+            if (totalItems > 0) {
+                const start = ((page - 1) * perPage) + 1;
+                const end = Math.min(page * perPage, totalItems);
+                paginationSummary.textContent = `Showing ${start} to ${end} of ${totalItems} grievances`;
+            } else {
+                paginationSummary.textContent = 'Showing 0 of 0 grievances';
+            }
+        }
+
+        // Update page indicator
+        if (paginationIndicator) {
+            paginationIndicator.textContent = `Page ${page} of ${totalPages}`;
+        }
+
+        // Update Previous control (actual anchor element)
+        if (paginationPrev) {
+            if (page > 1) {
+                paginationPrev.style.opacity = '1';
+                paginationPrev.style.pointerEvents = 'auto';
+                paginationPrev.dataset.page = (page - 1).toString();
+                const prevParams = buildFilterParams(page - 1);
+                paginationPrev.setAttribute('href', `?${prevParams.toString()}`);
+                paginationPrev.setAttribute('aria-disabled', 'false');
+                paginationPrev.setAttribute('tabindex', '0');
+            } else {
+                paginationPrev.style.opacity = '0.5';
+                paginationPrev.style.pointerEvents = 'none';
+                paginationPrev.removeAttribute('data-page');
+                paginationPrev.removeAttribute('href');
+                paginationPrev.setAttribute('aria-disabled', 'true');
+                paginationPrev.setAttribute('tabindex', '-1');
+            }
+        }
+
+        // Update Next control (actual anchor element)
+        if (paginationNext) {
+            if (page < totalPages) {
+                paginationNext.style.opacity = '1';
+                paginationNext.style.pointerEvents = 'auto';
+                paginationNext.dataset.page = (page + 1).toString();
+                const nextParams = buildFilterParams(page + 1);
+                paginationNext.setAttribute('href', `?${nextParams.toString()}`);
+                paginationNext.setAttribute('aria-disabled', 'false');
+                paginationNext.setAttribute('tabindex', '0');
+            } else {
+                paginationNext.style.opacity = '0.5';
+                paginationNext.style.pointerEvents = 'none';
+                paginationNext.removeAttribute('data-page');
+                paginationNext.removeAttribute('href');
+                paginationNext.setAttribute('aria-disabled', 'true');
+                paginationNext.setAttribute('tabindex', '-1');
+            }
+        }
+
+        // Show pagination controls only when there are multiple pages
+        paginationContainer.style.display = totalPages > 1 ? 'flex' : 'none';
+    }
+
+    function fetchFilteredGrievances(targetPage = 1, updateHistory = true) {
+        // Cancel any pending in-flight request to prevent stale race conditions
+        if (currentAbortController) {
+            currentAbortController.abort();
+            currentAbortController = null;
+        }
+
+        const requestId = ++latestRequestId;
+        const abortController = new AbortController();
+        currentAbortController = abortController;
+
+        currentPage = targetPage;
+        const params = buildFilterParams(currentPage);
+        // Ensure page is always explicitly included for the API call
+        params.set('page', currentPage.toString());
+        const apiUrl = `/admin/api/grievances?${params.toString()}`;
+
+        // Synchronize browser URL query parameters
+        if (updateHistory && window.history && window.history.pushState) {
+            const browserParams = buildFilterParams(currentPage);
+            const browserQuery = browserParams.toString();
+            const browserUrl = browserQuery ? `${window.location.pathname}?${browserQuery}` : window.location.pathname;
+            window.history.pushState({ page: currentPage }, '', browserUrl);
+        }
+
+        hideFilterError();
         tbody.style.opacity = '0.5';
 
-        fetch(url, {
+        fetch(apiUrl, {
+            signal: abortController.signal,
             headers: {
                 'Accept': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest',
             },
         })
-            .then((res) => {
+            .then(async (res) => {
+                if (requestId !== latestRequestId) {
+                    return null;
+                }
                 if (!res.ok) {
-                    throw new Error(`HTTP error ${res.status}`);
+                    let errorMsg = `Server returned status ${res.status}`;
+                    try {
+                        const errJson = await res.json();
+                        if (errJson.messages && errJson.messages.length) {
+                            errorMsg = errJson.messages.join(' ');
+                        } else if (errJson.error) {
+                            errorMsg = errJson.error;
+                        }
+                    } catch (_) {}
+                    throw new Error(errorMsg);
                 }
                 return res.json();
             })
             .then((data) => {
+                // Ensure only the latest request updates the DOM and state
+                if (!data || requestId !== latestRequestId) {
+                    return;
+                }
                 renderGrievanceRows(data.grievances);
+                updatePagination(data);
                 tbody.style.opacity = '1';
             })
             .catch((err) => {
+                // Silently ignore aborted requests or stale responses
+                if (err.name === 'AbortError' || requestId !== latestRequestId) {
+                    return;
+                }
                 console.error('Failed to fetch filtered grievances:', err);
+                showFilterError(err.message || 'An error occurred while filtering grievances. Please try again.');
                 tbody.style.opacity = '1';
             });
     }
@@ -150,7 +296,6 @@ function initAdminLiveFilter() {
                 <td>
                     <div class="student-cell">
                         <span class="student-name">${escapeHtml(g.student_name)}</span>
-                        ${g.student_email ? `<span class="student-email text-muted">${escapeHtml(g.student_email)}</span>` : ''}
                     </div>
                 </td>
                 <td>${escapeHtml(g.category)}</td>
@@ -176,27 +321,72 @@ function initAdminLiveFilter() {
         });
     }
 
+    // Reset current page to 1 whenever filters or search keywords change
+    function onFilterChange() {
+        fetchFilteredGrievances(1);
+    }
+
     // Intercept form submit to prevent full reload when JS is active
     filterForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        fetchFilteredGrievances();
+        onFilterChange();
     });
 
     if (statusSelect) {
-        statusSelect.addEventListener('change', fetchFilteredGrievances);
+        statusSelect.addEventListener('change', onFilterChange);
     }
     if (prioritySelect) {
-        prioritySelect.addEventListener('change', fetchFilteredGrievances);
+        prioritySelect.addEventListener('change', onFilterChange);
     }
     if (departmentSelect) {
-        departmentSelect.addEventListener('change', fetchFilteredGrievances);
+        departmentSelect.addEventListener('change', onFilterChange);
     }
     if (searchInput) {
         searchInput.addEventListener('input', () => {
             clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(fetchFilteredGrievances, 300);
+            debounceTimer = setTimeout(onFilterChange, 300);
         });
     }
+
+    // Attach AJAX pagination navigation click handler
+    if (paginationContainer) {
+        paginationContainer.addEventListener('click', (e) => {
+            const paginationBtn = e.target.closest('#pagination-prev, #pagination-next');
+            if (paginationBtn) {
+                if (paginationBtn.getAttribute('aria-disabled') === 'true' || !paginationBtn.dataset.page) {
+                    e.preventDefault();
+                    return;
+                }
+                e.preventDefault();
+                const targetPage = parseInt(paginationBtn.dataset.page, 10);
+                if (targetPage && targetPage !== currentPage) {
+                    fetchFilteredGrievances(targetPage);
+                }
+            }
+        });
+
+        // Ensure keyboard spacebar key triggers pagination on focused anchor
+        paginationContainer.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'Spacebar') {
+                const target = e.target.closest('#pagination-prev, #pagination-next');
+                if (target && target.getAttribute('aria-disabled') !== 'true' && target.dataset.page) {
+                    e.preventDefault();
+                    target.click();
+                }
+            }
+        });
+    }
+
+    // Handle browser back and forward button navigation
+    window.addEventListener('popstate', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (statusSelect) statusSelect.value = urlParams.get('status') || '';
+        if (prioritySelect) prioritySelect.value = urlParams.get('priority') || '';
+        if (departmentSelect) departmentSelect.value = urlParams.get('department') || '';
+        if (searchInput) searchInput.value = urlParams.get('search') || '';
+        const page = parseInt(urlParams.get('page'), 10) || 1;
+        fetchFilteredGrievances(page, false);
+    });
 }
 
 /**

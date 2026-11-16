@@ -122,7 +122,7 @@ The system uses a 4-table relational schema:
 
 ### 2. Clone Repository
 ```bash
-git clone https://github.com/your-username/Smart-Campus-Grievance-Resolution-System.git
+git clone https://github.com/ismailzia01/Smart-Campus-Grievance-Resolution-System.git
 cd Smart-Campus-Grievance-Resolution-System
 ```
 
@@ -161,10 +161,18 @@ flask seed-db
 ```
 
 ### 7. Run the Application
+
+You can launch the development server using either `python app.py` or `flask run`:
+
 ```bash
-flask run
+# Recommended (runs on port 5001 by default):
+python app.py
+
+# Or via Flask CLI (defaults to port 5000):
+flask run --port=5001
 ```
-The application will be accessible at: **`http://127.0.0.1:5000`**
+
+> **Port Configuration**: `python app.py` binds to port **`5001`** by default (customizable via the `PORT` environment variable). This default avoids port collisions with macOS AirPlay Receiver / ControlCenter, which binds to port 5000. When using standard `flask run`, specify `--port=5001` to prevent startup conflicts.
 
 ---
 
@@ -177,25 +185,19 @@ The application will be accessible at: **`http://127.0.0.1:5000`**
 
 ---
 
-## Automated Verification
+## Automated Testing & Regression Verification
 
-The application includes automated end-to-end verification covering:
-- Authentication & password hashing
-- Session fixation & minimal session cookie verification
-- CSRF protection rejection on unauthenticated POST requests
-- POST logout with CSRF enforcement & 405 rejection on GET logout
-- Student grievance submission, category validation, auto-department mapping
-- Cross-student data isolation & 403 Forbidden enforcement on unauthorized ticket access
-- Admin dashboard filtering, live JSON API endpoint, and metrics
-- Transactional audit logging for status, priority, and department changes
-- Workflow lifecycle locking (resolved tickets cannot be reopened)
+The repository contains an automated test suite implemented with Python's standard `unittest` framework and Flask's test client (`tests.py`). These integration and regression tests verify:
+- **Authentication & Security**: Registration validation, email format verification, secure password hashing (`scrypt`/`pbkdf2`), safe local redirect validation, session cookie security flags (`HttpOnly`, `SameSite=Lax`), and session fixation defense.
+- **CSRF Defense**: Global CSRF token protection on state-changing requests (`POST /auth/logout`, ticket submission, status updates) and HTTP 400 rejection on missing or invalid tokens.
+- **Student Ownership & Ticket Privacy**: Grievance submission, automatic department routing, SQL ownership enforcement, and **uniform 404 responses** for both nonexistent tickets and unauthorized student access to prevent ticket ID enumeration.
+- **Admin Workflow & Concurrency**: Status lifecycle progression (`open` $\rightarrow$ `in_progress` $\rightarrow$ `resolved`), locking of resolved tickets against reopening, and **conditional SQL updates** (`WHERE id = ? AND status = ?`) that catch stale concurrent updates with immediate rollback.
+- **Filtering & Pagination**: Admin dashboard and asynchronous `/admin/api/grievances` pagination (`LIMIT`/`OFFSET`), invalid filter rejection with HTTP 400 Bad Request (preventing broader results from leaking), and student privacy data scrubbing.
+- **Credential Provisioning**: Hardened administrative provisioning with email validation, 8–128 character password constraints, student promotion prevention, and existing account protection.
 
-Run the verification test suite:
+Run the complete automated test suite:
 ```bash
-python3 -c "
-from app import create_app
-print('App builds and boots cleanly!')
-"
+python3 -m unittest tests -v
 ```
 
 ---

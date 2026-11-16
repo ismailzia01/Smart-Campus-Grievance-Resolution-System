@@ -19,6 +19,7 @@ from werkzeug.security import generate_password_hash
 
 from app import create_app
 from db import get_db
+from seed import provision_admin
 
 
 class BaseTestCase(unittest.TestCase):
@@ -255,6 +256,26 @@ class TestJSONAPIPagination(BaseTestCase):
         data = json.loads(resp.data)
         for g_item in data['grievances']:
             self.assertNotIn('student_email', g_item)
+
+    def test_api_pagination_empty_results_page_one(self):
+        """When no records match, page=1 should return 200 with total_pages=1 and empty list."""
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get('/admin/api/grievances?page=1')
+        self.assertEqual(resp.status_code, 200)
+        data = json.loads(resp.data)
+        self.assertEqual(data['count'], 0)
+        self.assertEqual(data['total_items'], 0)
+        self.assertEqual(data['page'], 1)
+        self.assertEqual(data['total_pages'], 1)
+        self.assertEqual(data['grievances'], [])
+
+    def test_api_pagination_empty_results_out_of_range(self):
+        """When no records match, requesting page=2 or page=99 should return 400 Bad Request."""
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get('/admin/api/grievances?page=99')
+        self.assertEqual(resp.status_code, 400)
+        data = json.loads(resp.data)
+        self.assertIn('exceeds total pages', data.get('error', ''))
 
 
 class TestConcurrentStatusUpdates(BaseTestCase):
@@ -636,11 +657,39 @@ class TestRegressionSuite(BaseTestCase):
         self.assertEqual(resp.status_code, 200)
 
     def test_admin_invalid_filter(self):
-        """Admin dashboard should warn about invalid filters."""
+        """Admin dashboard should return 400 Bad Request and not return broader unfiltered results on invalid filters."""
+        with self.app.app_context():
+            db = get_db()
+            student = db.execute('SELECT id FROM users WHERE email = ?', ('student1@test.edu',)).fetchone()
+            db.execute(
+                '''INSERT INTO grievances (ticket_id, student_id, category, subject,
+                   description, location, priority, status)
+                   VALUES ('GR-LEAK', ?, 'Internet / Wi-Fi', 'Unfiltered Query Leak Test', 'Desc', 'Loc', 'medium', 'open')''',
+                (student['id'],),
+            )
+            db.commit()
+
         self._login('admin@test.edu', 'adminpass1')
         resp = self.client.get('/admin/dashboard?status=bogus')
-        self.assertEqual(resp.status_code, 200)
+        # Must return 400 Bad Request consistent with JSON endpoint
+        self.assertEqual(resp.status_code, 400)
         self.assertIn(b'Invalid status filter', resp.data)
+        # Must not display broader/unfiltered records
+        self.assertNotIn(b'Unfiltered Query Leak Test', resp.data)
+
+    def test_admin_invalid_priority_filter(self):
+        """Admin dashboard should return 400 on invalid priority filter."""
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get('/admin/dashboard?priority=ultra')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn(b'Invalid priority filter', resp.data)
+
+    def test_admin_invalid_department_filter(self):
+        """Admin dashboard should return 400 on nonexistent department ID."""
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get('/admin/dashboard?department=9999')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn(b'Department ID', resp.data)
 
     def test_safe_redirect_validation(self):
         """Login with external redirect URL should be rejected."""
@@ -705,6 +754,46 @@ class TestRegressionSuite(BaseTestCase):
             self.assertEqual(log['old_value'], 'open')
             self.assertEqual(log['new_value'], 'in_progress')
 
+    def test_dashboard_pagination_empty_results_clamps_page(self):
+        """When no records exist, requesting page=99 clamps page to 1."""
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get('/admin/dashboard?page=99')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b'Page 1 of 1', resp.data)
+        self.assertIn(b'Showing 0 of 0 grievances', resp.data)
+        self.assertNotIn(b'Page 99 of 1', resp.data)
+
+    def test_dashboard_html_table_omits_student_email(self):
+        """Dashboard HTML table row displays student name but omits student email."""
+        gid = self._create_test_grievance_direct()
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get('/admin/dashboard')
+        self.assertEqual(resp.status_code, 200)
+        # Student name should be in the student cell
+        self.assertIn(b'Student One', resp.data)
+        # Student email should NOT be rendered in the table cell
+        self.assertNotIn(b'class="student-email', resp.data)
+        self.assertNotIn(b'student1@test.edu', resp.data)
+
+    def test_admin_detail_view_preserves_student_email(self):
+        """Individual ticket detail view retains student email for administration."""
+        gid = self._create_test_grievance_direct()
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get(f'/admin/grievances/{gid}')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b'student1@test.edu', resp.data)
+
+    def test_dashboard_pagination_controls_are_anchors(self):
+        """Pagination controls are always actual anchor elements with aria-disabled attributes."""
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get('/admin/dashboard')
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode()
+        # Verify pagination-prev is an anchor tag with aria-disabled
+        self.assertRegex(html, r'<a[^>]+id="pagination-prev"[^>]*aria-disabled="true"')
+        # Verify pagination-next is an anchor tag with aria-disabled
+        self.assertRegex(html, r'<a[^>]+id="pagination-next"[^>]*aria-disabled="true"')
+
     def _create_test_grievance_direct(self):
         """Insert a test grievance directly into the DB."""
         with self.app.app_context():
@@ -720,6 +809,67 @@ class TestRegressionSuite(BaseTestCase):
             )
             db.commit()
             return cursor.lastrowid
+
+
+class TestAdminProvisioningHardening(BaseTestCase):
+    """Point 3: Hardened admin credential provisioning validation."""
+
+    def test_provision_admin_invalid_email(self):
+        """Invalid email formats should be rejected."""
+        with self.app.app_context():
+            ok, msg = provision_admin('notanemail', 'secureAdminPass1')
+            self.assertFalse(ok)
+            self.assertIn('Invalid email address format', msg)
+
+            ok, msg = provision_admin('', 'secureAdminPass1')
+            self.assertFalse(ok)
+
+            ok, msg = provision_admin('@missinglocal.com', 'secureAdminPass1')
+            self.assertFalse(ok)
+
+    def test_provision_admin_short_password(self):
+        """Passwords under 8 characters should be rejected."""
+        with self.app.app_context():
+            ok, msg = provision_admin('newadmin@test.edu', 'short7')
+            self.assertFalse(ok)
+            self.assertIn('at least 8 characters', msg)
+
+    def test_provision_admin_long_password(self):
+        """Passwords exceeding 128 characters should be rejected."""
+        with self.app.app_context():
+            ok, msg = provision_admin('newadmin@test.edu', 'A' * 129)
+            self.assertFalse(ok)
+            self.assertIn('cannot exceed 128 characters', msg)
+
+    def test_provision_admin_success(self):
+        """Valid admin credentials should provision successfully."""
+        with self.app.app_context():
+            ok, msg = provision_admin('valid.admin@campus.edu', 'validPassword123')
+            self.assertTrue(ok)
+            self.assertIn('provisioned successfully', msg)
+
+            db = get_db()
+            user = db.execute('SELECT * FROM users WHERE email = ?', ('valid.admin@campus.edu',)).fetchone()
+            self.assertIsNotNone(user)
+            self.assertEqual(user['role'], 'admin')
+
+    def test_provision_admin_cannot_promote_student(self):
+        """Existing student account cannot be promoted to admin."""
+        with self.app.app_context():
+            ok, msg = provision_admin('student1@test.edu', 'newPassword123')
+            self.assertFalse(ok)
+            self.assertIn('existing student account', msg)
+
+            db = get_db()
+            user = db.execute('SELECT role FROM users WHERE email = ?', ('student1@test.edu',)).fetchone()
+            self.assertEqual(user['role'], 'student')
+
+    def test_provision_admin_preserves_existing_admin(self):
+        """Existing administrator account is preserved without password overwrite."""
+        with self.app.app_context():
+            ok, msg = provision_admin('admin@test.edu', 'differentPassword123')
+            self.assertFalse(ok)
+            self.assertIn('already exists', msg)
 
 
 if __name__ == '__main__':

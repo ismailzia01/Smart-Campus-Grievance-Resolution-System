@@ -178,6 +178,39 @@ def dashboard():
         for err in filter_errors:
             flash(err, 'danger')
 
+        # Refuse to execute an unfiltered query on invalid parameters;
+        # return a 400 Bad Request response with an empty result set and flash messages
+        departments = db.execute('SELECT id, name FROM departments ORDER BY name ASC').fetchall()
+        stats = {
+            'total': db.execute('SELECT COUNT(*) FROM grievances').fetchone()[0],
+            'open': db.execute("SELECT COUNT(*) FROM grievances WHERE status = 'open'").fetchone()[0],
+            'in_progress': db.execute("SELECT COUNT(*) FROM grievances WHERE status = 'in_progress'").fetchone()[0],
+            'resolved': db.execute("SELECT COUNT(*) FROM grievances WHERE status = 'resolved'").fetchone()[0],
+        }
+        pagination = {
+            'page': 1,
+            'per_page': 10,
+            'total_items': 0,
+            'total_pages': 1,
+            'has_prev': False,
+            'has_next': False,
+            'prev_page': 1,
+            'next_page': 1,
+        }
+        return render_template(
+            'admin/dashboard.html',
+            grievances=[],
+            departments=departments,
+            stats=stats,
+            current_status=status,
+            current_priority=priority,
+            current_department=department_id,
+            current_search=search,
+            pagination=pagination,
+            filter_params={},
+            filter_errors=filter_errors,
+        ), 400
+
     # Pagination setup (10 records per page)
     try:
         page = int(request.args.get('page', 1))
@@ -189,7 +222,7 @@ def dashboard():
     per_page = 10
     total_items = count_filtered_grievances(db, status, priority, department_id, search)
     total_pages = max(1, math.ceil(total_items / per_page))
-    if page > total_pages and total_items > 0:
+    if page > total_pages:
         page = total_pages
 
     offset = (page - 1) * per_page
@@ -247,8 +280,8 @@ def api_grievances():
     """JSON API endpoint for asynchronous admin filtering with pagination.
 
     Provides filtered grievance data for dynamic UI updates without full page reload.
-    Supports pagination via 'page' and 'per_page' query parameters with sensible defaults.
-    Validates invalid filters with 400 Bad Request.
+    Supports pagination via the 'page' query parameter with a fixed page size of 10 records per page.
+    Validates invalid filters and out-of-range page parameters with 400 Bad Request.
     Removes unnecessary student personal information (such as personal email) from responses.
     """
     db = get_db()
@@ -275,7 +308,7 @@ def api_grievances():
     total_items = count_filtered_grievances(db, status, priority, department_id, search)
     total_pages = max(1, math.ceil(total_items / per_page))
 
-    if page > total_pages and total_items > 0:
+    if page > total_pages:
         return jsonify({'error': f'Page {page} exceeds total pages ({total_pages}).'}), 400
 
     offset = (page - 1) * per_page
