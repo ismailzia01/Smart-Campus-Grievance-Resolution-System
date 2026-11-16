@@ -207,6 +207,9 @@ flask --app app.py init-db
 
 # Seed departments and provision the administrator account
 flask --app app.py seed-db
+
+# Reset an existing administrator password securely (interactive prompt with confirmation)
+flask --app app.py reset-admin-password --email admin@smartcampus.edu
 ```
 
 To perform a destructive reset (with interactive confirmation):

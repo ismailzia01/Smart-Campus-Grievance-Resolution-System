@@ -9,6 +9,7 @@ import os
 import sys
 
 import click
+from flask.cli import with_appcontext
 from werkzeug.security import generate_password_hash
 
 from .auth import is_valid_email
@@ -102,6 +103,7 @@ def provision_admin(email, password, full_name='Campus Administrator'):
 
 @click.command('seed-db')
 @click.option('--email', default=None, help='Admin email address')
+@with_appcontext
 def seed_db_command(email):
     """Seed departments and provision the administrator account.
 
@@ -156,6 +158,124 @@ def seed_db_command(email):
     click.echo(message)
 
 
+def reset_admin_password(email, new_password):
+    """Reset the password for an existing administrator account.
+
+    Security & Safety Guarantees:
+    - Validates email format strictly.
+    - Requires account to exist and have role == 'admin'.
+    - Rejects nonexistent accounts and student accounts.
+    - Enforces password length between 8 and 128 characters.
+    - Updates only password_hash within an explicit database transaction with rollback.
+    - Does not modify or delete grievances, users, departments, or audit logs.
+    """
+    if not email or not isinstance(email, str) or not is_valid_email(email.strip()):
+        return False, "Invalid email address format. A valid campus email is required."
+
+    email = email.strip().lower()
+
+    if not new_password or not isinstance(new_password, str):
+        return False, "New administrator password is required."
+
+    if len(new_password) < 8:
+        return False, "Administrator password must be at least 8 characters long."
+
+    if len(new_password) > 128:
+        return False, "Administrator password cannot exceed 128 characters."
+
+    db = get_db()
+    account = db.execute(
+        'SELECT id, email, role FROM users WHERE email = ?',
+        (email,),
+    ).fetchone()
+
+    if account is None:
+        return False, f"Account with email ({email}) does not exist."
+
+    if account['role'] != 'admin':
+        return False, f"Account with email ({email}) is a student account. Only administrator accounts can be reset."
+
+    try:
+        new_hash = generate_password_hash(new_password)
+        db.execute(
+            'UPDATE users SET password_hash = ? WHERE id = ? AND role = "admin"',
+            (new_hash, account['id']),
+        )
+        db.commit()
+        return True, f"Password for administrator ({email}) has been reset successfully."
+    except Exception as e:
+        db.rollback()
+        return False, f"Password reset failed due to a database error: {e}"
+
+
+@click.command('reset-admin-password')
+@click.option('--email', default=None, help='Administrator email address')
+@with_appcontext
+def reset_admin_password_command(email):
+    """Reset the password for an existing administrator account.
+
+    Passwords are never accepted as command-line arguments to prevent
+    credential exposure in process lists and shell history.
+    """
+    admin_email = email
+    if not admin_email:
+        if sys.stdin.isatty():
+            while True:
+                admin_email = click.prompt('Enter Administrator Email', type=str)
+                if is_valid_email(admin_email.strip()):
+                    admin_email = admin_email.strip().lower()
+                    break
+                click.echo('Invalid email format. Please enter a valid campus email address.', err=True)
+        else:
+            click.echo('Error: Administrator email is required via --email option.', err=True)
+            return
+    elif not is_valid_email(admin_email.strip()):
+        click.echo(f"Error: Invalid administrator email '{admin_email}'.", err=True)
+        return
+
+    admin_email = admin_email.strip().lower()
+
+    # Step 1: Find the account using the supplied email
+    db = get_db()
+    account = db.execute(
+        'SELECT id, email, role FROM users WHERE email = ?',
+        (admin_email,),
+    ).fetchone()
+
+    # Step 2 & 3: Verify that account exists and role is admin; reject nonexistent and student accounts
+    if account is None:
+        click.echo(f"Error: Account with email '{admin_email}' does not exist.", err=True)
+        return
+
+    if account['role'] != 'admin':
+        click.echo(f"Error: Account with email '{admin_email}' is a student account. Only administrator passwords can be reset with this command.", err=True)
+        return
+
+    # Step 4: Prompt for new password using Click's hidden interactive input with confirmation
+    new_password = click.prompt(
+        'Enter New Administrator Password',
+        hide_input=True,
+        confirmation_prompt=True,
+    )
+
+    # Step 5: Enforce existing password length requirement of 8-128 characters
+    if len(new_password) < 8:
+        click.echo('Error: Administrator password must be at least 8 characters long.', err=True)
+        return
+
+    if len(new_password) > 128:
+        click.echo('Error: Administrator password cannot exceed 128 characters.', err=True)
+        return
+
+    # Step 6, 7, 8: Update only administrator's password_hash in transaction with commit & rollback
+    success, message = reset_admin_password(admin_email, new_password)
+    if success:
+        click.echo(message)
+    else:
+        click.echo(f"Error: {message}", err=True)
+
+
 def init_app(app):
-    """Register the seed command with the Flask application."""
+    """Register the seed commands with the Flask application."""
     app.cli.add_command(seed_db_command)
+    app.cli.add_command(reset_admin_password_command)

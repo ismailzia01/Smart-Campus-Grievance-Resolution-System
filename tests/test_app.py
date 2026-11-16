@@ -15,12 +15,12 @@ import tempfile
 import unittest
 from unittest import mock
 
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from backend import create_app
 from backend.admin import build_grievance_query
 from backend.db import get_db
-from backend.seed import provision_admin
+from backend.seed import provision_admin, reset_admin_password
 
 
 class BaseTestCase(unittest.TestCase):
@@ -918,6 +918,198 @@ class TestAdminProvisioningHardening(BaseTestCase):
             ok, msg = provision_admin('admin@test.edu', 'differentPassword123')
             self.assertFalse(ok)
             self.assertIn('already exists', msg)
+
+
+class TestAdminPasswordReset(BaseTestCase):
+    """Tests for administrator password reset CLI command and logic."""
+
+    def _create_grievance_with_audit(self):
+        """Insert a test grievance and audit log entry directly into the test database."""
+        with self.app.app_context():
+            db = get_db()
+            student = db.execute('SELECT id FROM users WHERE email = ?', ('student1@test.edu',)).fetchone()
+            admin = db.execute('SELECT id FROM users WHERE email = ?', ('admin@test.edu',)).fetchone()
+            cur = db.cursor()
+            cur.execute(
+                '''INSERT INTO grievances (ticket_id, student_id, category, subject,
+                   description, location, priority, status)
+                   VALUES (?, ?, ?, ?, ?, ?, 'medium', 'open')''',
+                ('GR-PRESERVE-01', student['id'], 'Internet / Wi-Fi',
+                 'Preserve Subject', 'Preserve Description', 'Campus Hall'),
+            )
+            gid = cur.lastrowid
+            cur.execute(
+                '''INSERT INTO grievance_logs (grievance_id, changed_by, action, old_value, new_value, remarks)
+                   VALUES (?, ?, ?, ?, ?, ?)''',
+                (gid, admin['id'], 'created', None, 'open', 'Initial submission'),
+            )
+            db.commit()
+            return gid
+
+    def test_reset_admin_password_success(self):
+        """Successful administrator password reset updates password_hash and allows authentication."""
+        with self.app.app_context():
+            ok, msg = reset_admin_password('admin@test.edu', 'NewSecureAdminPass2026!')
+            self.assertTrue(ok)
+            self.assertIn('reset successfully', msg)
+
+            db = get_db()
+            user = db.execute('SELECT * FROM users WHERE email = ?', ('admin@test.edu',)).fetchone()
+            self.assertIsNotNone(user)
+            self.assertTrue(check_password_hash(user['password_hash'], 'NewSecureAdminPass2026!'))
+            self.assertFalse(check_password_hash(user['password_hash'], 'adminpass1'))
+
+        # Verify authentication via Flask login endpoint
+        login_resp = self._login('admin@test.edu', 'NewSecureAdminPass2026!')
+        self.assertEqual(login_resp.status_code, 200)
+        self.assertIn(b'Overview', login_resp.data)
+
+        # Log out before attempting login with old password
+        self._logout()
+
+        # Verify old password no longer authenticates
+        failed_login = self._login('admin@test.edu', 'adminpass1')
+        self.assertIn(b'Invalid email or password', failed_login.data)
+
+    def test_reset_admin_password_invalid_or_nonexistent_email(self):
+        """Reset rejects invalid email formats and nonexistent email accounts."""
+        with self.app.app_context():
+            # Invalid formats
+            ok, msg = reset_admin_password('invalid-email-format', 'NewSecurePass2026!')
+            self.assertFalse(ok)
+            self.assertIn('Invalid email address format', msg)
+
+            ok, msg = reset_admin_password('', 'NewSecurePass2026!')
+            self.assertFalse(ok)
+            self.assertIn('Invalid email address format', msg)
+
+            # Nonexistent account
+            ok, msg = reset_admin_password('ghost_admin@test.edu', 'NewSecurePass2026!')
+            self.assertFalse(ok)
+            self.assertIn('does not exist', msg)
+
+    def test_reset_admin_password_student_account_rejection(self):
+        """Reset strictly rejects student accounts and leaves their passwords unchanged."""
+        with self.app.app_context():
+            ok, msg = reset_admin_password('student1@test.edu', 'NewSecurePass2026!')
+            self.assertFalse(ok)
+            self.assertIn('student account', msg)
+
+            # Verify student password was not modified
+            db = get_db()
+            user = db.execute('SELECT * FROM users WHERE email = ?', ('student1@test.edu',)).fetchone()
+            self.assertTrue(check_password_hash(user['password_hash'], 'student1pass'))
+            self.assertFalse(check_password_hash(user['password_hash'], 'NewSecurePass2026!'))
+
+        # Verify student can still log in with their original password
+        login_resp = self._login('student1@test.edu', 'student1pass')
+        self.assertEqual(login_resp.status_code, 200)
+        self.assertIn(b'My Grievance Tickets', login_resp.data)
+
+    def test_reset_admin_password_invalid_lengths(self):
+        """Passwords under 8 characters or over 128 characters are rejected."""
+        with self.app.app_context():
+            # Short password (< 8 chars)
+            ok, msg = reset_admin_password('admin@test.edu', 'short7')
+            self.assertFalse(ok)
+            self.assertIn('at least 8 characters', msg)
+
+            # Long password (> 128 chars)
+            ok, msg = reset_admin_password('admin@test.edu', 'P' * 129)
+            self.assertFalse(ok)
+            self.assertIn('cannot exceed 128 characters', msg)
+
+            # Verify admin password remains original
+            db = get_db()
+            user = db.execute('SELECT * FROM users WHERE email = ?', ('admin@test.edu',)).fetchone()
+            self.assertTrue(check_password_hash(user['password_hash'], 'adminpass1'))
+
+    def test_reset_admin_password_preserves_existing_data(self):
+        """Resetting admin password does not modify or delete grievances, users, departments, or audit logs."""
+        gid = self._create_grievance_with_audit()
+
+        with self.app.app_context():
+            db = get_db()
+            # Capture snapshot before reset
+            user_count_before = db.execute('SELECT COUNT(*) as c FROM users').fetchone()['c']
+            dept_count_before = db.execute('SELECT COUNT(*) as c FROM departments').fetchone()['c']
+            grievance_count_before = db.execute('SELECT COUNT(*) as c FROM grievances').fetchone()['c']
+            log_count_before = db.execute('SELECT COUNT(*) as c FROM grievance_logs').fetchone()['c']
+
+            grievance_before = db.execute('SELECT * FROM grievances WHERE id = ?', (gid,)).fetchone()
+            logs_before = [dict(r) for r in db.execute('SELECT * FROM grievance_logs WHERE grievance_id = ?', (gid,)).fetchall()]
+
+            # Reset admin password
+            ok, msg = reset_admin_password('admin@test.edu', 'PreservedPass2026!')
+            self.assertTrue(ok)
+
+            # Verify counts after reset
+            user_count_after = db.execute('SELECT COUNT(*) as c FROM users').fetchone()['c']
+            dept_count_after = db.execute('SELECT COUNT(*) as c FROM departments').fetchone()['c']
+            grievance_count_after = db.execute('SELECT COUNT(*) as c FROM grievances').fetchone()['c']
+            log_count_after = db.execute('SELECT COUNT(*) as c FROM grievance_logs').fetchone()['c']
+
+            self.assertEqual(user_count_before, user_count_after)
+            self.assertEqual(dept_count_before, dept_count_after)
+            self.assertEqual(grievance_count_before, grievance_count_after)
+            self.assertEqual(log_count_before, log_count_after)
+
+            # Verify grievance details intact
+            grievance_after = db.execute('SELECT * FROM grievances WHERE id = ?', (gid,)).fetchone()
+            self.assertEqual(grievance_before['ticket_id'], grievance_after['ticket_id'])
+            self.assertEqual(grievance_before['status'], grievance_after['status'])
+            self.assertEqual(grievance_before['subject'], grievance_after['subject'])
+
+            # Verify audit logs intact
+            logs_after = [dict(r) for r in db.execute('SELECT * FROM grievance_logs WHERE grievance_id = ?', (gid,)).fetchall()]
+            self.assertEqual(logs_before, logs_after)
+
+    def test_cli_reset_admin_password_interactive_flow(self):
+        """CLI reset-admin-password command executes interactive prompt and resets password."""
+        runner = self.app.test_cli_runner()
+
+        # Success case with hidden confirmation prompt
+        result = runner.invoke(
+            args=['reset-admin-password', '--email', 'admin@test.edu'],
+            input='CliSecurePass2026!\nCliSecurePass2026!\n',
+        )
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn('reset successfully', result.output)
+
+        with self.app.app_context():
+            db = get_db()
+            user = db.execute('SELECT * FROM users WHERE email = ?', ('admin@test.edu',)).fetchone()
+            self.assertTrue(check_password_hash(user['password_hash'], 'CliSecurePass2026!'))
+
+    def test_cli_reset_admin_password_validation_rejections(self):
+        """CLI command rejects nonexistent accounts, student accounts, and invalid password inputs."""
+        runner = self.app.test_cli_runner()
+
+        # Nonexistent email
+        result = runner.invoke(
+            args=['reset-admin-password', '--email', 'ghost@campus.edu'],
+        )
+        self.assertIn('does not exist', result.output)
+
+        # Student email
+        result = runner.invoke(
+            args=['reset-admin-password', '--email', 'student1@test.edu'],
+        )
+        self.assertIn('student account', result.output)
+
+        # Password too short (< 8 chars)
+        result = runner.invoke(
+            args=['reset-admin-password', '--email', 'admin@test.edu'],
+            input='short7\nshort7\n',
+        )
+        self.assertIn('at least 8 characters', result.output)
+
+        # Password confirmation mismatch
+        result = runner.invoke(
+            args=['reset-admin-password', '--email', 'admin@test.edu'],
+            input='passwordOne123\npasswordTwo123\n',
+        )
+        self.assertIn('Error', result.output)
 
 
 if __name__ == '__main__':
