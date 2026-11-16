@@ -66,7 +66,7 @@ def build_grievance_query(status=None, priority=None, department_id=None, search
         SELECT g.id, g.ticket_id, g.category, g.subject, g.location,
                g.priority, g.status, g.created_at, g.updated_at,
                d.id AS department_id, d.name AS department_name,
-               u.id AS student_id, u.full_name AS student_name, u.email AS student_email
+               u.full_name AS student_name
         FROM grievances g
         LEFT JOIN departments d ON g.department_id = d.id
         JOIN users u ON g.student_id = u.id

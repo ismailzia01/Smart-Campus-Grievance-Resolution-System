@@ -149,7 +149,7 @@
     </table>
 </div>
 
-<div class="pagination-container" id="pagination-container" style="display: {% if pagination and pagination.total_pages > 1 %}flex{% else %}none{% endif %}; justify-content: space-between; align-items: center; margin-top: 16px; padding: 12px 0;">
+<div class="pagination-container" id="pagination-container" data-current-page="{{ pagination.page if pagination else 1 }}" style="display: {% if pagination and pagination.total_pages > 1 %}flex{% else %}none{% endif %}; justify-content: space-between; align-items: center; margin-top: 16px; padding: 12px 0;">
         <span class="text-muted" id="pagination-summary" style="font-size: 0.875rem;">
             {% if pagination and pagination.total_items > 0 %}
                 Showing {{ ((pagination.page - 1) * pagination.per_page) + 1 }} to {{ [pagination.page * pagination.per_page, pagination.total_items] | min }} of {{ pagination.total_items }} grievances

@@ -17,6 +17,7 @@ from unittest import mock
 
 from werkzeug.security import generate_password_hash
 
+from admin import build_grievance_query
 from app import create_app
 from db import get_db
 from seed import provision_admin
@@ -793,6 +794,53 @@ class TestRegressionSuite(BaseTestCase):
         self.assertRegex(html, r'<a[^>]+id="pagination-prev"[^>]*aria-disabled="true"')
         # Verify pagination-next is an anchor tag with aria-disabled
         self.assertRegex(html, r'<a[^>]+id="pagination-next"[^>]*aria-disabled="true"')
+
+    def test_dashboard_pagination_container_has_data_current_page(self):
+        """Pagination container carries data-current-page matching the rendered clamped page."""
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get('/admin/dashboard?page=99')
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode()
+        self.assertIn('data-current-page="1"', html)
+
+    def test_build_grievance_query_minimizes_personal_data(self):
+        """build_grievance_query excludes student_id and student_email from SELECT clause."""
+        query, params = build_grievance_query()
+        select_clause = query.split('FROM')[0]
+        # Excludes unnecessary student personal data
+        self.assertNotIn('student_email', select_clause)
+        self.assertNotIn('student_id', select_clause)
+        # Retains student full name
+        self.assertIn('student_name', select_clause)
+
+    def test_search_by_student_email_works_with_minimized_query(self):
+        """Searching by student email remains functional even with minimized SELECT clause."""
+        gid = self._create_test_grievance_direct()
+        self._login('admin@test.edu', 'adminpass1')
+        resp = self.client.get('/admin/api/grievances?search=student1@test.edu')
+        self.assertEqual(resp.status_code, 200)
+        data = json.loads(resp.data)
+        self.assertEqual(data['total_items'], 1)
+        self.assertEqual(data['grievances'][0]['id'], gid)
+        self.assertNotIn('student_email', data['grievances'][0])
+
+    def test_js_debounce_and_history_sync_implementation(self):
+        """Verify static/js/main.js implements debounce cancellation, history synchronization, and DOM-based page initialization."""
+        js_path = os.path.join(os.path.dirname(__file__), 'static', 'js', 'main.js')
+        with open(js_path, 'r') as f:
+            js_code = f.read()
+
+        # Debounce cancellation
+        self.assertIn('clearPendingDebounce', js_code)
+        # AbortController cancellation
+        self.assertIn('AbortController', js_code)
+        self.assertIn('currentAbortController.abort()', js_code)
+        # DOM dataset current page initialization
+        self.assertIn('dataset.currentPage', js_code)
+        # Avoid duplicate history entries
+        self.assertIn('browserUrl !== currentUrl', js_code)
+        # popstate debounce clearing and form restoration
+        self.assertIn('popstate', js_code)
 
     def _create_test_grievance_direct(self):
         """Insert a test grievance directly into the DB."""

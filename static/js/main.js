@@ -90,8 +90,27 @@ function initAdminLiveFilter() {
     let debounceTimer = null;
     let currentAbortController = null;
     let latestRequestId = 0;
-    const initialParams = new URLSearchParams(window.location.search);
-    let currentPage = parseInt(initialParams.get('page'), 10) || 1;
+
+    function clearPendingDebounce() {
+        if (debounceTimer !== null) {
+            clearTimeout(debounceTimer);
+            debounceTimer = null;
+        }
+    }
+
+    // Initialize currentPage from server-rendered DOM attribute, not blindly from URL parameter
+    const initialPageFromDom = paginationContainer ? parseInt(paginationContainer.dataset.currentPage, 10) : NaN;
+    let currentPage = !isNaN(initialPageFromDom) && initialPageFromDom >= 1 ? initialPageFromDom : 1;
+
+    // Harmonize browser URL if the server clamped an out-of-range requested page parameter
+    const initialUrlParams = new URLSearchParams(window.location.search);
+    const requestedPage = parseInt(initialUrlParams.get('page'), 10);
+    if (!isNaN(requestedPage) && requestedPage !== currentPage && window.history && window.history.replaceState) {
+        const syncParams = buildFilterParams(currentPage);
+        const syncQuery = syncParams.toString();
+        const syncUrl = syncQuery ? `${window.location.pathname}?${syncQuery}` : window.location.pathname;
+        window.history.replaceState({ page: currentPage }, '', syncUrl);
+    }
 
     function buildFilterParams(page = 1) {
         const params = new URLSearchParams();
@@ -136,6 +155,12 @@ function initAdminLiveFilter() {
         const perPage = data.per_page || 10;
         const totalItems = data.total_items !== undefined ? data.total_items : (data.count || 0);
         const totalPages = data.total_pages || Math.max(1, Math.ceil(totalItems / perPage));
+
+        // Synchronize JavaScript currentPage and DOM data attribute
+        currentPage = page;
+        if (paginationContainer) {
+            paginationContainer.dataset.currentPage = page.toString();
+        }
 
         // Update total-record count and range summary
         if (paginationSummary) {
@@ -198,6 +223,9 @@ function initAdminLiveFilter() {
     }
 
     function fetchFilteredGrievances(targetPage = 1, updateHistory = true) {
+        // Clear any pending debounce timer to prevent stale search execution
+        clearPendingDebounce();
+
         // Cancel any pending in-flight request to prevent stale race conditions
         if (currentAbortController) {
             currentAbortController.abort();
@@ -214,12 +242,15 @@ function initAdminLiveFilter() {
         params.set('page', currentPage.toString());
         const apiUrl = `/admin/api/grievances?${params.toString()}`;
 
-        // Synchronize browser URL query parameters
+        // Synchronize browser URL query parameters without pushing duplicate history entries
         if (updateHistory && window.history && window.history.pushState) {
             const browserParams = buildFilterParams(currentPage);
             const browserQuery = browserParams.toString();
             const browserUrl = browserQuery ? `${window.location.pathname}?${browserQuery}` : window.location.pathname;
-            window.history.pushState({ page: currentPage }, '', browserUrl);
+            const currentUrl = `${window.location.pathname}${window.location.search}`;
+            if (browserUrl !== currentUrl) {
+                window.history.pushState({ page: currentPage }, '', browserUrl);
+            }
         }
 
         hideFilterError();
@@ -323,28 +354,42 @@ function initAdminLiveFilter() {
 
     // Reset current page to 1 whenever filters or search keywords change
     function onFilterChange() {
+        clearPendingDebounce();
         fetchFilteredGrievances(1);
     }
 
     // Intercept form submit to prevent full reload when JS is active
     filterForm.addEventListener('submit', (e) => {
         e.preventDefault();
+        clearPendingDebounce();
         onFilterChange();
     });
 
     if (statusSelect) {
-        statusSelect.addEventListener('change', onFilterChange);
+        statusSelect.addEventListener('change', () => {
+            clearPendingDebounce();
+            onFilterChange();
+        });
     }
     if (prioritySelect) {
-        prioritySelect.addEventListener('change', onFilterChange);
+        prioritySelect.addEventListener('change', () => {
+            clearPendingDebounce();
+            onFilterChange();
+        });
     }
     if (departmentSelect) {
-        departmentSelect.addEventListener('change', onFilterChange);
+        departmentSelect.addEventListener('change', () => {
+            clearPendingDebounce();
+            onFilterChange();
+        });
     }
     if (searchInput) {
         searchInput.addEventListener('input', () => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(onFilterChange, 300);
+            clearPendingDebounce();
+            debounceTimer = setTimeout(() => {
+                debounceTimer = null;
+                onFilterChange();
+            }, 300);
         });
     }
 
@@ -358,6 +403,7 @@ function initAdminLiveFilter() {
                     return;
                 }
                 e.preventDefault();
+                clearPendingDebounce();
                 const targetPage = parseInt(paginationBtn.dataset.page, 10);
                 if (targetPage && targetPage !== currentPage) {
                     fetchFilteredGrievances(targetPage);
@@ -371,6 +417,7 @@ function initAdminLiveFilter() {
                 const target = e.target.closest('#pagination-prev, #pagination-next');
                 if (target && target.getAttribute('aria-disabled') !== 'true' && target.dataset.page) {
                     e.preventDefault();
+                    clearPendingDebounce();
                     target.click();
                 }
             }
@@ -379,13 +426,20 @@ function initAdminLiveFilter() {
 
     // Handle browser back and forward button navigation
     window.addEventListener('popstate', () => {
+        clearPendingDebounce();
         const urlParams = new URLSearchParams(window.location.search);
-        if (statusSelect) statusSelect.value = urlParams.get('status') || '';
-        if (prioritySelect) prioritySelect.value = urlParams.get('priority') || '';
-        if (departmentSelect) departmentSelect.value = urlParams.get('department') || '';
-        if (searchInput) searchInput.value = urlParams.get('search') || '';
-        const page = parseInt(urlParams.get('page'), 10) || 1;
-        fetchFilteredGrievances(page, false);
+        const restoredStatus = urlParams.get('status') || '';
+        const restoredPriority = urlParams.get('priority') || '';
+        const restoredDepartment = urlParams.get('department') || '';
+        const restoredSearch = urlParams.get('search') || '';
+        const restoredPage = parseInt(urlParams.get('page'), 10) || 1;
+
+        if (statusSelect) statusSelect.value = restoredStatus;
+        if (prioritySelect) prioritySelect.value = restoredPriority;
+        if (departmentSelect) departmentSelect.value = restoredDepartment;
+        if (searchInput) searchInput.value = restoredSearch;
+
+        fetchFilteredGrievances(restoredPage, false);
     });
 }
 
