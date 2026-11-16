@@ -15,9 +15,9 @@ from flask import (
     url_for,
 )
 
-from auth import login_required
-from db import get_db
-from seed import CATEGORY_DEPARTMENT_MAP, VALID_CATEGORIES
+from .auth import login_required
+from .db import get_db
+from .seed import CATEGORY_DEPARTMENT_MAP, VALID_CATEGORIES
 
 bp = Blueprint('student', __name__, url_prefix='/student')
 

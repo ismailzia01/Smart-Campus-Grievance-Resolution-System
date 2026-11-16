@@ -3,6 +3,7 @@ Database connection management for the Smart Campus Grievance System.
 Uses Python's built-in sqlite3 module with Flask's application context.
 """
 
+import os
 import sqlite3
 
 import click
@@ -52,8 +53,13 @@ def init_db(force=False):
             'Database already contains existing tables. Initialization aborted to prevent data loss. '
             'Use "flask reset-db" to perform a destructive reset.'
         )
-    with current_app.open_resource('schema.sql') as f:
-        db.executescript(f.read().decode('utf-8'))
+    schema_path = current_app.config.get('SCHEMA_PATH')
+    if not schema_path or not os.path.exists(schema_path):
+        schema_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), '..', 'databases', 'schema.sql')
+        )
+    with open(schema_path, 'r', encoding='utf-8') as f:
+        db.executescript(f.read())
 
 
 def reset_db():

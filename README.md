@@ -39,51 +39,92 @@ The platform enables students to lodge facilities, IT, hostel, and academic grie
 
 - **Backend**: Python 3, Flask 3.1
 - **Database**: SQLite with foreign key enforcement (`PRAGMA foreign_keys = ON`)
-- **Template Engine**: Jinja2 with template inheritance
-- **Styling**: Vanilla CSS (no external UI frameworks, clean university administrative design system)
-- **Client Scripting**: Vanilla JavaScript (async filtering via Fetch API, DOM manipulation, no heavy frontend frameworks)
+- **Template Engine**: Jinja2 with hierarchical layout inheritance
+- **Styling**: Vanilla CSS (clean university administrative design system without external CSS frameworks)
+- **Client Scripting**: Vanilla JavaScript (async filtering via Fetch API, AbortController request cancellation, browser history synchronization, no external JS frameworks)
 - **Security & Forms**: Flask-WTF (`CSRFProtect`), Werkzeug Security (`generate_password_hash`, `check_password_hash`)
 - **Environment Management**: `python-dotenv`
 
-### Folder Structure
+### Project Structure
 
-```
+```text
 Smart-Campus-Grievance-Resolution-System/
-├── app.py                   # Application factory & error handlers
-├── auth.py                  # Authentication blueprint & access decorators
-├── student.py               # Student blueprint (dashboard, submit, view)
-├── admin.py                 # Admin blueprint (dashboard, management, JSON API)
-├── db.py                    # SQLite connection lifecycle & CLI commands
-├── seed.py                  # Department seeding & secure admin provisioning
-├── schema.sql               # SQLite 4-table relational schema & indexes
-├── requirements.txt         # Pinned Python package dependencies
-├── .env                     # Environment variables (gitignored)
+│
+├── frontend/
+│   ├── templates/
+│   │   ├── base.html            # Base layout with header, navigation & flash messages
+│   │   ├── index.html           # Campus landing page
+│   │   ├── auth/
+│   │   │   ├── login.html       # Login form
+│   │   │   └── register.html    # Student registration form
+│   │   ├── student/
+│   │   │   ├── dashboard.html   # Student ticket dashboard
+│   │   │   ├── new_grievance.html # Grievance submission form
+│   │   │   └── view_grievance.html # Student ticket detail & timeline
+│   │   ├── admin/
+│   │   │   ├── dashboard.html   # Admin overview & live filterable table
+│   │   │   └── view_grievance.html # Admin management view & action forms
+│   │   └── errors/
+│   │       ├── 400.html         # Bad request / expired CSRF error
+│   │       ├── 403.html         # Forbidden access error
+│   │       ├── 404.html         # Page / ticket not found error
+│   │       └── 500.html         # Internal server error
+│   │
+│   └── static/
+│       ├── css/
+│       │   └── style.css        # University administration stylesheet
+│       └── js/
+│           └── main.js          # Vanilla JS for live filters, debouncing & history sync
+│
+├── backend/
+│   ├── __init__.py              # Application factory (create_app) & blueprint wiring
+│   ├── auth.py                  # Authentication blueprint & access decorators
+│   ├── admin.py                 # Admin blueprint (dashboard, management, JSON API)
+│   ├── student.py               # Student blueprint (dashboard, submit, view)
+│   ├── db.py                    # SQLite connection lifecycle & CLI commands
+│   └── seed.py                  # Department seeding & secure admin provisioning
+│
+├── databases/
+│   └── schema.sql               # SQLite 4-table relational schema DDL & indexes
+│
+├── tests/
+│   ├── __init__.py              # Test package initializer
+│   └── test_app.py              # Comprehensive regression & integration test suite
+│
 ├── instance/
-│   └── database.db          # SQLite runtime database file (gitignored)
-├── static/
-│   ├── css/
-│   │   └── style.css        # University administration stylesheet
-│   └── js/
-│       └── main.js          # Vanilla JS for live filters & form handling
-└── templates/
-    ├── base.html            # Base layout with header, navigation & flash messages
-    ├── index.html           # Campus landing page
-    ├── auth/
-    │   ├── login.html       # Login form
-    │   └── register.html    # Student registration form
-    ├── student/
-    │   ├── dashboard.html   # Student ticket dashboard
-    │   ├── new_grievance.html # Grievance submission form
-    │   └── view_grievance.html # Student ticket detail & timeline
-    ├── admin/
-    │   ├── dashboard.html   # Admin overview & live filterable table
-    │   └── view_grievance.html # Admin management view & action forms
-    └── errors/
-        ├── 400.html         # Bad request / expired CSRF error
-        ├── 403.html         # Forbidden access error
-        ├── 404.html         # Page / ticket not found error
-        └── 500.html         # Internal server error
+│   └── database.db              # Runtime SQLite database file (gitignored)
+│
+├── app.py                       # Root application entry point
+├── requirements.txt             # Pinned Python package dependencies
+├── .env                         # Environment variables (gitignored)
+├── .env.example                 # Template for required environment variables
+├── .gitignore                   # Git exclude rules
+└── README.md                    # System documentation
 ```
+
+### Architectural Separation of Responsibilities
+
+1. **Frontend (`frontend/`)**:
+   - **Templates (`frontend/templates/`)**: Jinja2 templates organized by domain (`auth`, `student`, `admin`, `errors`). Inherits from `base.html` for consistent navigation, CSRF metadata, alert banners, and accessibility landmarks.
+   - **Static Assets (`frontend/static/`)**: University administrative CSS (`css/style.css`) and client-side logic (`js/main.js`). Features debounced live search, `AbortController` cancellation for stale AJAX requests, URL query synchronization with `pushState`/`popstate`, and keyboard-accessible pagination controls.
+
+2. **Backend (`backend/`)**:
+   - **Application Factory (`backend/__init__.py`)**: Implements `create_app()`, configures template/static folder paths pointing to `frontend/`, sets the instance directory to root `instance/`, configures secure session cookie settings (`HttpOnly`, `SameSite=Lax`), and registers all blueprints.
+   - **Authentication (`backend/auth.py`)**: Registration with email regex validation, password constraints (8–128 characters), login with safe local redirect validation, session regeneration, and role-based access decorators (`login_required`, `admin_required`).
+   - **Student Blueprint (`backend/student.py`)**: Student dashboard, grievance lodging with automatic departmental routing, and ticket view with query-level student ownership enforcement.
+   - **Admin Blueprint (`backend/admin.py`)**: Summary dashboard, server-side paginated grievance queries (10 records/page), strict filter validation (HTTP 400 on invalid input), ticket detail views, and status updates using **conditional SQL updates** (`WHERE id = ? AND status = ?`) that guard against concurrent status overwrites.
+   - **Database Management (`backend/db.py`)**: SQLite connection helpers with row factories and foreign keys enabled. Provides non-destructive initialization (`init-db`) that refuses to overwrite existing tables, alongside a confirmation-gated `reset-db` command.
+   - **Seeding (`backend/seed.py`)**: Automated seeding of campus departments and idempotent provisioning of administrative accounts from environment variables or interactive CLI prompts without student account elevation.
+
+3. **Databases (`databases/` vs. `instance/`)**:
+   - **Schema DDL (`databases/schema.sql`)**: Version-controlled SQL DDL defining the relational schema, tables, foreign keys, and indexes.
+   - **Runtime Database (`instance/database.db`)**: Uncommitted local SQLite runtime database file stored in the root `instance/` folder.
+
+4. **Tests (`tests/`)**:
+   - **Integration & Regression Suite (`tests/test_app.py`)**: 52 automated tests covering authentication, ticket privacy (uniform 404), concurrent race conditions, pagination, filter validation, admin provisioning hardening, and frontend contract compliance.
+
+5. **Root Entry Point (`app.py`)**:
+   - Clean, lightweight application launcher that imports `create_app` from `backend` and executes the WSGI server on port 5001 (or as defined by the `PORT` environment variable).
 
 ---
 
@@ -111,6 +152,7 @@ The system uses a 4-table relational schema:
 - **Cookie Flags**: Cookies have `HttpOnly` enabled to prevent XSS access and `SameSite=Lax` to prevent cross-site request forgery.
 - **Secure Password Hashing**: Passwords are never stored in plaintext. They are hashed using Werkzeug's cryptographic methods.
 - **Safe Admin Provisioning**: No hardcoded default credentials exist in source code. Initial administrators are provisioned via environment variables or interactive CLI prompts. Routine seeding never resets existing passwords.
+- **Ticket Privacy (Enumeration Defense)**: Attempting to access another student's ticket or a nonexistent ticket returns an identical HTTP 404 response, preventing ticket ID enumeration.
 
 ---
 
@@ -138,11 +180,18 @@ pip install -r requirements.txt
 ```
 
 ### 5. Environment Configuration
-Create a `.env` file in the project root:
+Copy the template configuration file:
+```bash
+cp .env.example .env
+```
+
+Edit `.env` to set your secret key and initial administrator credentials:
 ```env
 SECRET_KEY=your-generated-secret-key-here
 ADMIN_EMAIL=admin@smartcampus.edu
 ADMIN_PASSWORD=YourSecurePassword123!
+PORT=5001
+FLASK_DEBUG=false
 ```
 
 > You can generate a secure `SECRET_KEY` with:
@@ -153,23 +202,28 @@ ADMIN_PASSWORD=YourSecurePassword123!
 ### 6. Initialize and Seed Database
 Run the Flask CLI commands to create the schema and seed campus departments:
 ```bash
-# Initialize SQLite tables
-flask init-db
+# Initialize SQLite tables (non-destructive; refuses to overwrite existing tables)
+flask --app app.py init-db
 
 # Seed departments and provision the administrator account
-flask seed-db
+flask --app app.py seed-db
+```
+
+To perform a destructive reset (with interactive confirmation):
+```bash
+flask --app app.py reset-db
 ```
 
 ### 7. Run the Application
 
-You can launch the development server using either `python app.py` or `flask run`:
+Launch the development server using `python app.py`:
 
 ```bash
 # Recommended (runs on port 5001 by default):
 python app.py
 
-# Or via Flask CLI (defaults to port 5000):
-flask run --port=5001
+# Or via Flask CLI:
+flask --app app.py run --port=5001
 ```
 
 > **Port Configuration**: `python app.py` binds to port **`5001`** by default (customizable via the `PORT` environment variable). This default avoids port collisions with macOS AirPlay Receiver / ControlCenter, which binds to port 5000. When using standard `flask run`, specify `--port=5001` to prevent startup conflicts.
@@ -180,14 +234,14 @@ flask run --port=5001
 
 | Role | Default Email | Provisioned Via | Access Capabilities |
 |------|---------------|-----------------|---------------------|
-| **Administrator** | `admin@smartcampus.edu` | `flask seed-db` via `.env` | Access `/admin/dashboard`, triage, prioritize, reassign departments, resolve tickets, view all campus logs. |
+| **Administrator** | `admin@smartcampus.edu` | `flask --app app.py seed-db` via `.env` | Access `/admin/dashboard`, triage, prioritize, reassign departments, resolve tickets, view all campus logs. |
 | **Student** | Self-registered | `/auth/register` | Access `/student/dashboard`, lodge new grievances, track ticket progress, view resolution notes. |
 
 ---
 
 ## Automated Testing & Regression Verification
 
-The repository contains an automated test suite implemented with Python's standard `unittest` framework and Flask's test client (`tests.py`). These integration and regression tests verify:
+The test suite is located in `tests/test_app.py` and implemented with Python's standard `unittest` framework and Flask's test client:
 - **Authentication & Security**: Registration validation, email format verification, secure password hashing (`scrypt`/`pbkdf2`), safe local redirect validation, session cookie security flags (`HttpOnly`, `SameSite=Lax`), and session fixation defense.
 - **CSRF Defense**: Global CSRF token protection on state-changing requests (`POST /auth/logout`, ticket submission, status updates) and HTTP 400 rejection on missing or invalid tokens.
 - **Student Ownership & Ticket Privacy**: Grievance submission, automatic department routing, SQL ownership enforcement, and **uniform 404 responses** for both nonexistent tickets and unauthorized student access to prevent ticket ID enumeration.
@@ -197,11 +251,10 @@ The repository contains an automated test suite implemented with Python's standa
 
 Run the complete automated test suite:
 ```bash
-python3 -m unittest tests -v
+python -m unittest discover -s tests -v
 ```
 
 ---
 
 ## License
 Educational and campus administration software developed for university facilities management.
-

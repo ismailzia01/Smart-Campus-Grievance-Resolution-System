@@ -19,8 +19,8 @@ from flask import (
     url_for,
 )
 
-from auth import admin_required
-from db import get_db
+from .auth import admin_required
+from .db import get_db
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 

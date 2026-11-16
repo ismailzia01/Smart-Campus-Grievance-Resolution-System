@@ -11,8 +11,8 @@ import sys
 import click
 from werkzeug.security import generate_password_hash
 
-from auth import is_valid_email
-from db import get_db
+from .auth import is_valid_email
+from .db import get_db
 
 # Valid grievance categories supported by the system
 VALID_CATEGORIES = [

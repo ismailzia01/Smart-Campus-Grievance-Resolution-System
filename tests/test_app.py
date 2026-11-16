@@ -17,10 +17,10 @@ from unittest import mock
 
 from werkzeug.security import generate_password_hash
 
-from admin import build_grievance_query
-from app import create_app
-from db import get_db
-from seed import provision_admin
+from backend import create_app
+from backend.admin import build_grievance_query
+from backend.db import get_db
+from backend.seed import provision_admin
 
 
 class BaseTestCase(unittest.TestCase):
@@ -38,7 +38,7 @@ class BaseTestCase(unittest.TestCase):
 
         with self.app.app_context():
             db = get_db()
-            schema_path = os.path.join(os.path.dirname(__file__), 'schema.sql')
+            schema_path = os.path.join(os.path.dirname(__file__), '..', 'databases', 'schema.sql')
             with open(schema_path, 'r') as f:
                 db.executescript(f.read())
 
@@ -328,7 +328,7 @@ class TestConcurrentStatusUpdates(BaseTestCase):
         resp = self.client.get(f'/admin/grievances/{gid}')
         token = self._get_csrf_token(resp.data.decode())
 
-        from db import get_db as real_get_db
+        from backend.db import get_db as real_get_db
 
         class CursorProxy:
             def __init__(self, real_cur, db_path, target_gid):
@@ -358,7 +358,7 @@ class TestConcurrentStatusUpdates(BaseTestCase):
             def cursor(self):
                 return CursorProxy(self._conn.cursor(), self._db_path, self._gid)
 
-        with mock.patch('admin.get_db', side_effect=lambda: ConnectionProxy(real_get_db(), self.db_path, gid)):
+        with mock.patch('backend.admin.get_db', side_effect=lambda: ConnectionProxy(real_get_db(), self.db_path, gid)):
             resp = self.client.post(f'/admin/grievances/{gid}/status', data={
                 'status': 'in_progress',
                 'remarks': 'Race condition test',
@@ -379,7 +379,7 @@ class TestConcurrentStatusUpdates(BaseTestCase):
         resp = self.client.get(f'/admin/grievances/{gid}')
         token = self._get_csrf_token(resp.data.decode())
 
-        from db import get_db as real_get_db
+        from backend.db import get_db as real_get_db
 
         class CursorProxy:
             def __init__(self, real_cur, db_path, target_gid):
@@ -412,7 +412,7 @@ class TestConcurrentStatusUpdates(BaseTestCase):
             def cursor(self):
                 return CursorProxy(self._conn.cursor(), self._db_path, self._gid)
 
-        with mock.patch('admin.get_db', side_effect=lambda: ConnectionProxy(real_get_db(), self.db_path, gid)):
+        with mock.patch('backend.admin.get_db', side_effect=lambda: ConnectionProxy(real_get_db(), self.db_path, gid)):
             resp = self.client.post(f'/admin/grievances/{gid}/status', data={
                 'status': 'resolved',
                 'resolution_details': 'My duplicate resolution',
@@ -826,7 +826,7 @@ class TestRegressionSuite(BaseTestCase):
 
     def test_js_debounce_and_history_sync_implementation(self):
         """Verify static/js/main.js implements debounce cancellation, history synchronization, and DOM-based page initialization."""
-        js_path = os.path.join(os.path.dirname(__file__), 'static', 'js', 'main.js')
+        js_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'static', 'js', 'main.js')
         with open(js_path, 'r') as f:
             js_code = f.read()
 
