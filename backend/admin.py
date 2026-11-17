@@ -21,6 +21,7 @@ from flask import (
 
 from .auth import admin_required
 from .db import get_db
+from .time_utils import to_ist
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -325,7 +326,7 @@ def api_grievances():
             'location': r['location'],
             'priority': r['priority'],
             'status': r['status'],
-            'created_at': r['created_at'][:16],
+            'created_at': to_ist(r['created_at']),
             'department_name': r['department_name'] or 'Pending Assignment',
             'student_name': r['student_name'],
             # Removed unnecessary student personal email to protect student privacy in API responses

@@ -51,11 +51,11 @@
             </div>
             <div class="meta-item">
                 <span class="meta-label">Submitted At</span>
-                <span class="meta-value">{{ grievance['created_at'][:16] }}</span>
+                <span class="meta-value">{{ grievance['created_at'] | to_ist }}</span>
             </div>
             <div class="meta-item">
                 <span class="meta-label">Last Updated</span>
-                <span class="meta-value">{{ grievance['updated_at'][:16] }}</span>
+                <span class="meta-value">{{ grievance['updated_at'] | to_ist }}</span>
             </div>
         </div>
     </div>
@@ -228,7 +228,7 @@
                                         {{ log['action'] | replace('_', ' ') | capitalize }}
                                     {% endif %}
                                 </span>
-                                <span class="timeline-date">{{ log['created_at'][:16] }}</span>
+                                <span class="timeline-date">{{ log['created_at'] | to_ist }}</span>
                             </div>
                             <div class="timeline-meta">
                                 Actor: <span class="timeline-actor">{{ log['actor_name'] }}</span> ({{ log['actor_role'] | capitalize }})

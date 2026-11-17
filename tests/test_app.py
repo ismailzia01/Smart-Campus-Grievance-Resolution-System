@@ -13,7 +13,9 @@ import os
 import re
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -21,6 +23,7 @@ from backend import create_app
 from backend.admin import build_grievance_query
 from backend.db import get_db
 from backend.seed import provision_admin, reset_admin_password
+from backend.time_utils import IST_TIMEZONE, ISTStr, to_ist
 
 
 class BaseTestCase(unittest.TestCase):
@@ -1110,6 +1113,139 @@ class TestAdminPasswordReset(BaseTestCase):
             input='passwordOne123\npasswordTwo123\n',
         )
         self.assertIn('Error', result.output)
+
+
+class TestTimezoneISTHandling(BaseTestCase):
+    """Test suite for UTC to IST (Asia/Kolkata) timezone conversion and display consistency."""
+
+    def test_utc_to_ist_conversion(self):
+        """Verify standard UTC timestamp formats convert accurately to IST (+05:30)."""
+        # UTC 07:27 -> IST 12:57
+        self.assertEqual(to_ist('2026-11-17 07:27:14'), '2026-11-17 12:57')
+        self.assertEqual(to_ist('2026-11-17 07:27'), '2026-11-17 12:57')
+        self.assertEqual(to_ist('2026-11-17T07:27:14Z'), '2026-11-17 12:57')
+        self.assertEqual(to_ist('2026-11-17T07:27:14+00:00'), '2026-11-17 12:57')
+
+        # Naive datetime assumed UTC per database convention
+        dt_naive = datetime(2026, 11, 17, 7, 27)
+        self.assertEqual(to_ist(dt_naive), '2026-11-17 12:57')
+
+        # Aware UTC datetime
+        dt_utc = datetime(2026, 11, 17, 7, 27, tzinfo=timezone.utc)
+        self.assertEqual(to_ist(dt_utc), '2026-11-17 12:57')
+
+        # Empty / None handling
+        self.assertEqual(to_ist(None), '')
+        self.assertEqual(to_ist(''), '')
+
+    def test_date_and_time_rollover_across_midnight(self):
+        """Verify date and time roll over correctly across midnight into the next day."""
+        # 20:00 UTC on Nov 16 + 5:30 = 01:30 on Nov 17
+        self.assertEqual(to_ist('2026-11-16 20:00:00'), '2026-11-17 01:30')
+        # 23:45 UTC on Dec 31 + 5:30 = 05:15 on Jan 01 (year rollover)
+        self.assertEqual(to_ist('2025-12-31 23:45:00'), '2026-01-01 05:15')
+
+    def test_avoid_double_conversion(self):
+        """Verify already timezone-aware datetimes and strings are not converted twice."""
+        # Converting an already converted ISTStr returns the exact same string
+        first_pass = to_ist('2026-11-17 07:27:14')
+        self.assertEqual(first_pass, '2026-11-17 12:57')
+        second_pass = to_ist(first_pass)
+        self.assertEqual(second_pass, '2026-11-17 12:57')
+
+        # Timezone-aware datetime in IST (+05:30) is not shifted again
+        dt_ist = datetime(2026, 11, 17, 12, 57, tzinfo=IST_TIMEZONE)
+        self.assertEqual(to_ist(dt_ist), '2026-11-17 12:57')
+
+        # String with explicit +05:30 offset
+        self.assertEqual(to_ist('2026-11-17T12:57:14+05:30'), '2026-11-17 12:57')
+
+    def test_database_records_remain_in_utc(self):
+        """Verify existing and newly created SQLite records remain stored in UTC."""
+        with self.app.app_context():
+            db = get_db()
+            student = db.execute('SELECT id FROM users WHERE email = ?', ('student1@test.edu',)).fetchone()
+            cur = db.cursor()
+            # Explicitly insert known UTC timestamp
+            cur.execute(
+                '''INSERT INTO grievances (ticket_id, student_id, category, subject,
+                   description, location, priority, status, created_at, updated_at)
+                   VALUES (?, ?, 'IT', 'TZ Test', 'Description', 'Hall A', 'medium', 'open',
+                           '2026-11-17 07:27:14', '2026-11-17 07:27:14')''',
+                ('GR-TZ-01', student['id']),
+            )
+            gid = cur.lastrowid
+            cur.execute(
+                '''INSERT INTO grievance_logs (grievance_id, changed_by, action, old_value, new_value, remarks, created_at)
+                   VALUES (?, ?, 'created', NULL, 'open', 'Initial submission', '2026-11-17 07:27:14')''',
+                (gid, student['id']),
+            )
+            db.commit()
+
+            # Verify the raw stored value in the database was not rewritten or shifted
+            raw_g = db.execute('SELECT created_at, updated_at FROM grievances WHERE id = ?', (gid,)).fetchone()
+            self.assertEqual(raw_g['created_at'], '2026-11-17 07:27:14')
+            self.assertEqual(raw_g['updated_at'], '2026-11-17 07:27:14')
+
+            raw_log = db.execute('SELECT created_at FROM grievance_logs WHERE grievance_id = ?', (gid,)).fetchone()
+            self.assertEqual(raw_log['created_at'], '2026-11-17 07:27:14')
+
+    def test_student_and_admin_views_display_consistent_ist_timestamps(self):
+        """Verify student view, admin view, and admin JSON API all display consistent IST timestamps."""
+        with self.app.app_context():
+            db = get_db()
+            student = db.execute('SELECT id FROM users WHERE email = ?', ('student1@test.edu',)).fetchone()
+            cur = db.cursor()
+            # Insert known UTC timestamp 07:27:14 -> IST 12:57
+            cur.execute(
+                '''INSERT INTO grievances (ticket_id, student_id, category, subject,
+                   description, location, priority, status, created_at, updated_at)
+                   VALUES (?, ?, 'IT', 'Consistent TZ Test', 'Desc', 'Lab 2', 'medium', 'open',
+                           '2026-11-17 07:27:14', '2026-11-17 07:27:14')''',
+                ('GR-TZ-CONSISTENT', student['id']),
+            )
+            gid = cur.lastrowid
+            cur.execute(
+                '''INSERT INTO grievance_logs (grievance_id, changed_by, action, old_value, new_value, remarks, created_at)
+                   VALUES (?, ?, 'created', NULL, 'open', 'Grievance submitted', '2026-11-17 07:27:14')''',
+                (gid, student['id']),
+            )
+            db.commit()
+
+        # 1. Student ticket detail view
+        self._login('student1@test.edu', 'student1pass')
+        student_resp = self.client.get(f'/student/grievances/{gid}')
+        self.assertEqual(student_resp.status_code, 200)
+        student_html = student_resp.data.decode()
+        self.assertIn('2026-11-17 12:57', student_html)
+        self.assertNotIn('2026-11-17 07:27', student_html)
+
+        # 2. Student dashboard view
+        student_dash = self.client.get('/student/dashboard')
+        self.assertEqual(student_dash.status_code, 200)
+        self.assertIn('2026-11-17 12:57', student_dash.data.decode())
+
+        self._logout()
+
+        # 3. Admin ticket detail view
+        self._login('admin@test.edu', 'adminpass1')
+        admin_resp = self.client.get(f'/admin/grievances/{gid}')
+        self.assertEqual(admin_resp.status_code, 200)
+        admin_html = admin_resp.data.decode()
+        self.assertIn('2026-11-17 12:57', admin_html)
+        self.assertNotIn('2026-11-17 07:27', admin_html)
+
+        # 4. Admin dashboard HTML view
+        admin_dash = self.client.get('/admin/dashboard')
+        self.assertEqual(admin_dash.status_code, 200)
+        self.assertIn('2026-11-17 12:57', admin_dash.data.decode())
+
+        # 5. Admin JSON API view
+        api_resp = self.client.get('/admin/api/grievances?search=GR-TZ-CONSISTENT')
+        self.assertEqual(api_resp.status_code, 200)
+        api_data = json.loads(api_resp.data.decode())
+        self.assertEqual(api_data['count'], 1)
+        self.assertEqual(api_data['grievances'][0]['created_at'], '2026-11-17 12:57')
 
 
 if __name__ == '__main__':

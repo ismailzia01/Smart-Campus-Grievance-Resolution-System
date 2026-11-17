@@ -132,7 +132,7 @@
                                 {% endif %}
                             </span>
                         </td>
-                        <td class="cell-date text-muted">{{ g['created_at'][:16] }}</td>
+                        <td class="cell-date text-muted">{{ g['created_at'] | to_ist }}</td>
                         <td>
                             <a href="{{ url_for('admin.view_grievance', id=g['id']) }}" class="btn btn-primary btn-sm">Manage</a>
                         </td>

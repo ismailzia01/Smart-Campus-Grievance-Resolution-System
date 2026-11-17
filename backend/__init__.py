@@ -106,10 +106,19 @@ def create_app(test_config=None):
     from . import admin
     app.register_blueprint(admin.bp)
 
+    # Register template filters and globals for timezone conversion
+    from .time_utils import to_ist
+    app.add_template_filter(to_ist, 'to_ist')
+    app.add_template_filter(to_ist, 'format_ist')
+    app.add_template_global(to_ist, 'to_ist')
+    app.add_template_global(to_ist, 'format_ist')
+
     @app.context_processor
     def inject_helpers():
         return {
-            'has_endpoint': lambda endpoint: endpoint in app.view_functions
+            'has_endpoint': lambda endpoint: endpoint in app.view_functions,
+            'to_ist': to_ist,
+            'format_ist': to_ist,
         }
 
     # --- Landing Page Route ---
